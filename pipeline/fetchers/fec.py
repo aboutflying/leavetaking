@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import csv
-import io
 import logging
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import requests
@@ -39,13 +39,10 @@ COMMITTEE_CONTRIB_COLS = [
     "file_number", "memo_code", "memo_text", "sub_id",
 ]
 
-# Individual contributions (itcont)
-INDIVIDUAL_CONTRIB_COLS = [
-    "committee_id", "amendment_indicator", "report_type", "primary_general",
-    "image_number", "transaction_type", "entity_type", "contributor_name",
-    "city", "state", "zip", "employer", "occupation", "transaction_date",
-    "transaction_amount", "other_id", "transaction_id", "file_number",
-    "memo_code", "memo_text", "sub_id",
+# Candidate-committee linkage (ccl26.zip extracts to ccl26.txt — glob 'ccl*.txt' matches)
+CANDIDATE_COMMITTEE_LINKAGE_COLS = [
+    "cand_id", "cand_election_yr", "fec_election_yr",
+    "cmte_id", "cmte_tp", "cmte_dsgn", "linkage_id",
 ]
 
 
@@ -54,15 +51,14 @@ def download_bulk_file(file_type: str, cycle: int) -> Path:
 
     Args:
         file_type: One of 'cm' (committee master), 'cn' (candidate master),
-                   'pas2' (committee-to-candidate), 'indiv' (individual contributions).
+                   'pas2' (committee-to-candidate), 'ccl' (candidate-committee linkage).
         cycle: Election cycle year (e.g. 2024).
 
     Returns:
         Path to the extracted data file.
     """
-    cycle_suffix = str(cycle)[2:]  # e.g. "24" for 2024
-    url = f"{FEC_BULK_BASE}/{cycle}/{{file_type}}{cycle_suffix}.zip"
-    url = url.format(file_type=file_type)
+    cycle_suffix = str(cycle)[2:]  # e.g. "26" for 2026
+    url = f"{FEC_BULK_BASE}/{cycle}/{file_type}{cycle_suffix}.zip"
 
     output_dir = settings.fec_bulk_data_dir / str(cycle)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -93,36 +89,34 @@ def download_bulk_file(file_type: str, cycle: int) -> Path:
     return extracted[0] if extracted else output_dir
 
 
-def parse_committee_master(path: Path) -> list[dict]:
-    """Parse committee master file into list of dicts."""
-    return _parse_pipe_delimited(path, COMMITTEE_MASTER_COLS)
+def parse_committee_master(path: Path) -> Iterator[dict]:
+    """Stream committee master file as dicts."""
+    yield from _stream_pipe_delimited(path, COMMITTEE_MASTER_COLS)
 
 
-def parse_candidate_master(path: Path) -> list[dict]:
-    """Parse candidate master file into list of dicts."""
-    return _parse_pipe_delimited(path, CANDIDATE_MASTER_COLS)
+def parse_candidate_master(path: Path) -> Iterator[dict]:
+    """Stream candidate master file as dicts."""
+    yield from _stream_pipe_delimited(path, CANDIDATE_MASTER_COLS)
 
 
-def parse_committee_contributions(path: Path) -> list[dict]:
-    """Parse committee-to-candidate contributions (pas2) file."""
-    return _parse_pipe_delimited(path, COMMITTEE_CONTRIB_COLS)
+def parse_committee_contributions(path: Path) -> Iterator[dict]:
+    """Stream committee-to-candidate contributions (pas2) file as dicts."""
+    yield from _stream_pipe_delimited(path, COMMITTEE_CONTRIB_COLS)
 
 
-def parse_individual_contributions(path: Path) -> list[dict]:
-    """Parse individual contributions (itcont) file."""
-    return _parse_pipe_delimited(path, INDIVIDUAL_CONTRIB_COLS)
+def parse_candidate_committee_linkage(path: Path) -> Iterator[dict]:
+    """Stream candidate-committee linkage (ccl) file as dicts."""
+    yield from _stream_pipe_delimited(path, CANDIDATE_COMMITTEE_LINKAGE_COLS)
 
 
-def _parse_pipe_delimited(path: Path, columns: list[str]) -> list[dict]:
-    """Parse a pipe-delimited FEC bulk file."""
-    records = []
+def _stream_pipe_delimited(path: Path, columns: list[str]) -> Iterator[dict]:
+    """Stream a pipe-delimited FEC bulk file, yielding one dict per row."""
+    logger.info("Streaming FEC bulk file: %s", path.name)
     with open(path, encoding="latin-1") as f:
         reader = csv.reader(f, delimiter="|")
         for row in reader:
             if len(row) >= len(columns):
-                records.append(dict(zip(columns, row[: len(columns)])))
-    logger.info("Parsed %d records from %s", len(records), path.name)
-    return records
+                yield dict(zip(columns, row[: len(columns)]))
 
 
 def fetch_committee_by_name(name: str) -> list[dict]:
