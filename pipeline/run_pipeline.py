@@ -4,32 +4,29 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 
 from pipeline.config import ensure_data_dirs, get_neo4j_driver, settings
 from pipeline.fetchers.fec import (
     download_bulk_file,
+    parse_candidate_committee_linkage,
     parse_candidate_master,
     parse_committee_contributions,
     parse_committee_master,
-    parse_individual_contributions,
 )
 from pipeline.fetchers.scorecards import load_all_manual_scorecards
 from pipeline.loaders.graph_loader import (
     apply_schema,
+    load_candidate_committee_linkage,
     load_candidates,
     load_committee_contributions,
     load_committees,
-    load_individual_donations,
-    load_pac_edges,
-    load_persons,
     load_scorecard_ratings,
     load_seed_data,
 )
 from pipeline.processors.entity_resolution import (
     filter_corporate_pacs,
-    filter_executive_donations,
+    filter_supported_contributions,
 )
 from pipeline.processors.score_computation import compute_all_scores, export_scores
 
@@ -52,61 +49,56 @@ def run_schema(session) -> None:
 
 
 def run_fec(session) -> None:
-    """Step 1: Fetch and load FEC data."""
+    """Step 1: Fetch and load FEC Tier 1 bulk data.
+
+    Downloads and processes: committee master (cm), candidate master (cn),
+    committee-to-candidate contributions (pas2), and candidate-committee
+    linkage (ccl). Individual contributions (indiv) are not processed —
+    executive donation tracking is deferred to Tier 2.
+    """
     logger.info("=== FEC Data Pipeline ===")
 
     for cycle in settings.fec_cycles:
         logger.info("--- Processing cycle %d ---", cycle)
 
-        # Download and parse bulk files
+        # Download Tier 1 bulk files (no indiv — exec donations deferred to Tier 2)
         cm_path = download_bulk_file("cm", cycle)
         cn_path = download_bulk_file("cn", cycle)
         pas2_path = download_bulk_file("pas2", cycle)
-        indiv_path = download_bulk_file("indiv", cycle)
+        ccl_path = download_bulk_file("ccl", cycle)
 
-        committees = parse_committee_master(cm_path)
-        candidates = parse_candidate_master(cn_path)
-        committee_contribs = parse_committee_contributions(pas2_path)
-        individual_contribs = parse_individual_contributions(indiv_path)
+        # Materialize candidates and committees as lists — _batch_load requires list,
+        # and we need to iterate each multiple times (load + build sets / filter).
+        candidates = list(parse_candidate_master(cn_path))
+        committees = list(parse_committee_master(cm_path))
 
-        # Load candidates and committees
+        # Load candidates and committees into Neo4j
         load_candidates(session, candidates)
         load_committees(session, committees)
 
-        # Filter to corporate PACs and load contributions
+        # Build set of known candidate IDs for ccl26 validation
+        known_cand_ids = {c["candidate_id"] for c in candidates}
+
+        # Filter to corporate PACs and log count
         corporate_pacs = filter_corporate_pacs(committees)
-        logger.info("Found %d corporate PACs out of %d committees", len(corporate_pacs), len(committees))
-
-        # Add cycle info to contributions
-        for c in committee_contribs:
-            c["cycle"] = cycle
-        load_committee_contributions(session, committee_contribs)
-
-        # Filter executive donations and load
-        exec_donations = filter_executive_donations(individual_contribs)
         logger.info(
-            "Found %d executive donations out of %d individual contributions",
-            len(exec_donations), len(individual_contribs),
+            "Found %d corporate PACs out of %d committees",
+            len(corporate_pacs), len(committees),
         )
-        for d in exec_donations:
-            d["cycle"] = cycle
-            d["fec_contributor_id"] = f"{d.get('contributor_name', '')}_{d.get('zip', '')}"
-            d["candidate_id"] = d.get("other_id", "")
 
-        # Create Person nodes for executives
-        persons = []
-        seen = set()
-        for d in exec_donations:
-            fid = d["fec_contributor_id"]
-            if fid not in seen:
-                persons.append({
-                    "name": d.get("contributor_name", ""),
-                    "title": d.get("occupation", ""),
-                    "fec_contributor_id": fid,
-                })
-                seen.add(fid)
-        load_persons(session, persons)
-        load_individual_donations(session, exec_donations)
+        # Stream pas2, filter to support-only transaction types (24K, 24Z),
+        # materialize, tag with cycle, then load.
+        supported_contribs = list(
+            filter_supported_contributions(parse_committee_contributions(pas2_path))
+        )
+        for c in supported_contribs:
+            c["cycle"] = cycle
+        load_committee_contributions(session, supported_contribs)
+        logger.info("Loaded %d supported contributions for cycle %d", len(supported_contribs), cycle)
+
+        # Load candidate-committee linkage with validation against known candidates
+        ccl_rows = parse_candidate_committee_linkage(ccl_path)
+        load_candidate_committee_linkage(session, ccl_rows, known_cand_ids=known_cand_ids)
 
 
 def run_scorecards(session) -> None:
