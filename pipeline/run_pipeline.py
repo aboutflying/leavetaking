@@ -14,14 +14,13 @@ from pipeline.fetchers.fec import (
     parse_committee_contributions,
     parse_committee_master,
 )
-from pipeline.fetchers.scorecards import load_all_manual_scorecards
+from pipeline.fetchers.scorecards import load_all_scorecards
 from pipeline.loaders.graph_loader import (
     apply_schema,
     load_candidate_committee_linkage,
     load_candidates,
     load_committee_contributions,
     load_committees,
-    load_scorecard_ratings,
     load_seed_data,
 )
 from pipeline.processors.entity_resolution import (
@@ -104,14 +103,8 @@ def run_fec(session) -> None:
 def run_scorecards(session) -> None:
     """Step 2: Load scorecard data."""
     logger.info("=== Scorecard Pipeline ===")
-    records = load_all_manual_scorecards()
-    logger.info("Loaded %d scorecard ratings", len(records))
-
-    ratings = [
-        r.to_dict() for r in records
-        if r.fec_candidate_id  # Only load ratings we can link to candidates
-    ]
-    load_scorecard_ratings(session, ratings)
+    records = list(load_all_scorecards(settings.fec_cycles))
+    logger.info("Loaded %d raw scorecard ratings (resolver wiring in Task 2)", len(records))
 
 
 def run_scores(session) -> None:

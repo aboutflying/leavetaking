@@ -2,129 +2,182 @@
 
 from __future__ import annotations
 
-import json
+import csv
 import logging
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
-
-import requests
+from typing import Protocol
 
 from pipeline.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-# Scorecard data is heterogeneous — each org publishes in a different format.
-# This module provides a unified interface with per-org parsers.
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RawRating:
+    """A single candidate rating from a scorecard, before FEC ID resolution."""
+
+    org_name: str
+    year: int
+    issue: str
+    candidate_name: str
+    state: str
+    score: float
 
 
-class ScorecardRecord:
-    """A single candidate rating from a scorecard."""
+# ---------------------------------------------------------------------------
+# Grade normalization
+# ---------------------------------------------------------------------------
 
-    def __init__(
-        self,
-        org_name: str,
-        year: int,
-        candidate_name: str,
-        fec_candidate_id: str | None,
-        score: float,
-        issue: str,
-    ):
-        self.org_name = org_name
-        self.year = year
-        self.candidate_name = candidate_name
-        self.fec_candidate_id = fec_candidate_id
-        self.score = score  # Normalized to 0-100
+GRADE_TO_SCORE: dict[str, float] = {
+    "A+": 100.0, "A": 95.0, "A-": 90.0,
+    "B+": 85.0,  "B": 75.0, "B-": 70.0,
+    "C+": 65.0,  "C": 50.0, "C-": 45.0,
+    "D+": 35.0,  "D": 25.0, "D-": 20.0,
+    "F": 0.0,
+}
+
+# Score cell values that mean "did not vote / not applicable" — skip silently
+_SKIP_SCORE_VALUES = {"", "-", "N/A", "n/v", "NV"}
+
+
+def normalize_score(raw: str | float | int) -> float:
+    """Convert a raw score value to a 0–100 float.
+
+    Accepts:
+    - Numeric types (int, float) — returned as float directly
+    - Numeric strings ('73.5', '100') — parsed as float
+    - Letter grade strings ('A+', 'B-', 'F') — converted via GRADE_TO_SCORE
+
+    Raises:
+        ValueError: For any string not recognized as numeric or a valid grade.
+    """
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if stripped in GRADE_TO_SCORE:
+            return GRADE_TO_SCORE[stripped]
+        try:
+            return float(stripped)
+        except ValueError:
+            pass
+    raise ValueError(f"Unknown score value: {raw!r}")
+
+
+# ---------------------------------------------------------------------------
+# Fetcher protocol
+# ---------------------------------------------------------------------------
+
+class ScorecardFetcher(Protocol):
+    """Protocol for per-org scorecard fetchers."""
+
+    def fetch(self, year: int) -> Iterator[RawRating]:
+        """Yield RawRating records for the given election cycle year."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# LCV fetcher (reference implementation)
+# ---------------------------------------------------------------------------
+
+class LCVFetcher:
+    """Reads League of Conservation Voters annual scorecard from a local CSV.
+
+    Expected file: data/scorecards/lcv_{year}.csv
+    Downloaded manually from scorecard.lcv.org (no public API available).
+
+    CSV columns: Member, State, Party, {year} Score, Lifetime Score
+    """
+
+    def __init__(self, data_dir: Path, issue: str = "environment") -> None:
+        self.data_dir = data_dir
         self.issue = issue
 
-    def to_dict(self) -> dict:
-        return {
-            "org_name": self.org_name,
-            "year": self.year,
-            "candidate_name": self.candidate_name,
-            "fec_candidate_id": self.fec_candidate_id,
-            "score": self.score,
-            "issue": self.issue,
-        }
+    def fetch(self, year: int) -> Iterator[RawRating]:
+        path = self.data_dir / f"lcv_{year}.csv"
+        if not path.exists():
+            logger.info("LCV file not found for %d: %s", year, path)
+            return
+
+        # encoding='utf-8-sig' strips BOM from Excel-exported CSVs
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
+
+            # Detect year-specific score column (e.g. '2024 Score')
+            target = f"{year} score"
+            score_col = next(
+                (fn for fn in fieldnames if fn.strip().lower() == target),
+                None,
+            )
+            if score_col is None:
+                logger.warning(
+                    "LCV CSV %s has no '%d Score' column (found: %s)",
+                    path.name, year, fieldnames,
+                )
+                return
+
+            for row in reader:
+                score_raw = row.get(score_col, "").strip()
+
+                if score_raw in _SKIP_SCORE_VALUES:
+                    logger.debug(
+                        "Skipping blank/NA score for %s", row.get("Member")
+                    )
+                    continue
+
+                try:
+                    score = normalize_score(score_raw)
+                except ValueError:
+                    logger.warning(
+                        "Skipping unrecognized score %r for %s",
+                        score_raw, row.get("Member"),
+                    )
+                    continue
+
+                candidate_name = row.get("Member", "").strip()
+                state = row.get("State", "").strip().upper()
+
+                if not candidate_name or not state:
+                    logger.warning(
+                        "Skipping row with missing Member or State: %r", row
+                    )
+                    continue
+
+                yield RawRating(
+                    org_name="League of Conservation Voters",
+                    year=year,
+                    issue=self.issue,
+                    candidate_name=candidate_name,
+                    state=state,
+                    score=score,
+                )
 
 
-def fetch_lcv_scorecard(year: int = 2024) -> list[ScorecardRecord]:
-    """Fetch League of Conservation Voters National Environmental Scorecard.
+# ---------------------------------------------------------------------------
+# Registry and orchestrator
+# ---------------------------------------------------------------------------
 
-    LCV publishes scores as percentages (0-100) for each member of Congress.
+FETCHER_REGISTRY: dict[str, ScorecardFetcher] = {
+    "League of Conservation Voters": LCVFetcher(
+        settings.data_dir / "scorecards"
+    ),
+}
+
+
+def load_all_scorecards(cycles: list[int]) -> Iterator[RawRating]:
+    """Yield RawRating records from all registered fetchers across all cycles.
+
+    Adding a new org: register a fetcher in FETCHER_REGISTRY — no other
+    changes needed here or in run_pipeline.py.
     """
-    cache_path = settings.data_dir / "scorecards" / f"lcv_{year}.json"
-
-    if cache_path.exists():
-        data = json.loads(cache_path.read_text())
-    else:
-        # LCV scorecard API endpoint (public)
-        url = f"https://scorecard.lcv.org/exports/{year}-scorecard.json"
-        try:
-            resp = requests.get(url, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(data))
-        except requests.RequestException:
-            logger.warning("Could not fetch LCV scorecard for %d, using empty", year)
-            return []
-
-    records = []
-    for member in data if isinstance(data, list) else data.get("members", []):
-        records.append(ScorecardRecord(
-            org_name="League of Conservation Voters",
-            year=year,
-            candidate_name=member.get("name", ""),
-            fec_candidate_id=member.get("fec_id"),
-            score=float(member.get("score", 0)),
-            issue="environment",
-        ))
-    return records
-
-
-def load_scorecard_from_file(path: Path) -> list[ScorecardRecord]:
-    """Load a manually curated scorecard JSON file.
-
-    Expected format:
-    {
-        "org_name": "ACLU",
-        "year": 2024,
-        "issue": "civil_liberties",
-        "ratings": [
-            {"candidate_name": "...", "fec_candidate_id": "...", "score": 85},
-            ...
-        ]
-    }
-    """
-    data = json.loads(path.read_text())
-    org_name = data["org_name"]
-    year = data["year"]
-    issue = data["issue"]
-
-    return [
-        ScorecardRecord(
-            org_name=org_name,
-            year=year,
-            candidate_name=r["candidate_name"],
-            fec_candidate_id=r.get("fec_candidate_id"),
-            score=float(r["score"]),
-            issue=issue,
-        )
-        for r in data.get("ratings", [])
-    ]
-
-
-def load_all_manual_scorecards() -> list[ScorecardRecord]:
-    """Load all manually curated scorecard files from the data directory."""
-    scorecard_dir = settings.data_dir / "scorecards"
-    if not scorecard_dir.exists():
-        return []
-
-    records = []
-    for path in scorecard_dir.glob("*.json"):
-        try:
-            records.extend(load_scorecard_from_file(path))
-            logger.info("Loaded %s", path.name)
-        except (json.JSONDecodeError, KeyError):
-            logger.exception("Failed to load scorecard: %s", path)
-    return records
+    for org_name, fetcher in FETCHER_REGISTRY.items():
+        for year in cycles:
+            logger.info("Loading scorecard: %s %d", org_name, year)
+            yield from fetcher.fetch(year)
