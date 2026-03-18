@@ -16,3 +16,4 @@ neo4j_logs/
 
 # Dolt database files (added by bd init)
 .dolt/
+.beads/.beads-credential-key

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 from neo4j import Session
@@ -21,7 +22,7 @@ def apply_schema(session: Session, schema_path: Path) -> None:
         if not statement or statement.startswith("//"):
             continue
         # Filter out comment-only lines within a statement
-        lines = [l for l in statement.split("\n") if not l.strip().startswith("//")]
+        lines = [line for line in statement.split("\n") if not line.strip().startswith("//")]
         cleaned = "\n".join(lines).strip()
         if cleaned:
             try:
@@ -153,21 +154,64 @@ def load_pac_edges(session: Session, edges: list[dict]) -> int:
 def load_committee_contributions(session: Session, contributions: list[dict]) -> int:
     """Load Committee-CONTRIBUTED_TO->Candidate edges.
 
+    Uses MERGE on transaction_id so that amended FEC records overwrite originals
+    (last-write-wins via SET). This handles the FEC amendment pattern where the
+    same TRAN_ID appears multiple times as a filing is corrected.
+
     Args:
         contributions: List of dicts with keys: committee_id, candidate_id,
-                       transaction_amount, transaction_date.
+                       transaction_id, transaction_amount, transaction_date, cycle.
     """
     query = """
     UNWIND $batch AS c
     MATCH (comm:Committee {fec_committee_id: c.committee_id})
     MATCH (cand:Candidate {fec_candidate_id: c.candidate_id})
-    CREATE (comm)-[:CONTRIBUTED_TO {
-        amount: toFloat(c.transaction_amount),
-        date: c.transaction_date,
-        cycle: c.cycle
-    }]->(cand)
+    MERGE (comm)-[r:CONTRIBUTED_TO {tran_id: c.transaction_id}]->(cand)
+    SET r.amount = toFloat(c.transaction_amount),
+        r.date = c.transaction_date,
+        r.cycle = c.cycle
     """
     return _batch_load(session, query, contributions)
+
+
+def load_candidate_committee_linkage(
+    session: Session,
+    rows: Iterator[dict],
+    known_cand_ids: set[str] | None = None,
+) -> int:
+    """Load Candidate-AUTHORIZED_COMMITTEE->Committee edges from ccl26.
+
+    Validates that each candidate ID in the linkage file has a corresponding
+    Candidate node already loaded. Logs a WARNING for any missing candidate IDs.
+
+    Args:
+        session: Neo4j session.
+        rows: Iterator of dicts from parse_candidate_committee_linkage.
+        known_cand_ids: Set of fec_candidate_id values already loaded into Neo4j.
+                        If provided, used to validate linkage records.
+
+    Returns:
+        Number of linkage records loaded.
+    """
+    rows_list = list(rows)
+
+    if known_cand_ids is not None:
+        for row in rows_list:
+            cand_id = row.get("cand_id", "")
+            if cand_id not in known_cand_ids:
+                logger.warning(
+                    "CAND_ID %s in ccl26 has no matching Candidate node", cand_id
+                )
+
+    query = """
+    UNWIND $batch AS row
+    MATCH (cand:Candidate {fec_candidate_id: row.cand_id})
+    MATCH (cmte:Committee {fec_committee_id: row.cmte_id})
+    MERGE (cand)-[r:AUTHORIZED_COMMITTEE {linkage_id: row.linkage_id}]->(cmte)
+    SET r.designation = row.cmte_dsgn,
+        r.type = row.cmte_tp
+    """
+    return _batch_load(session, query, rows_list)
 
 
 def load_persons(session: Session, persons: list[dict]) -> int:

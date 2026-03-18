@@ -62,26 +62,42 @@ SET s.methodology_url = "https://giffords.org/lawcenter/resources/scorecard/";
 
 // --- Link Scorecards to Issues ---
 
-MATCH (s:Scorecard {org_name: "ACLU"}), (i:Issue {name: "civil_liberties"})
+MATCH (s:Scorecard {org_name: "ACLU"})
+WITH s
+MATCH (i:Issue {name: "civil_liberties"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "League of Conservation Voters"}), (i:Issue {name: "environment"})
+MATCH (s:Scorecard {org_name: "League of Conservation Voters"})
+WITH s
+MATCH (i:Issue {name: "environment"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "Human Rights Campaign"}), (i:Issue {name: "lgbtq_rights"})
+MATCH (s:Scorecard {org_name: "Human Rights Campaign"})
+WITH s
+MATCH (i:Issue {name: "lgbtq_rights"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "AFL-CIO"}), (i:Issue {name: "labor"})
+MATCH (s:Scorecard {org_name: "AFL-CIO"})
+WITH s
+MATCH (i:Issue {name: "labor"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "Heritage Action"}), (i:Issue {name: "fiscal_policy"})
+MATCH (s:Scorecard {org_name: "Heritage Action"})
+WITH s
+MATCH (i:Issue {name: "fiscal_policy"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "NumbersUSA"}), (i:Issue {name: "immigration"})
+MATCH (s:Scorecard {org_name: "NumbersUSA"})
+WITH s
+MATCH (i:Issue {name: "immigration"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "NRA"}), (i:Issue {name: "gun_policy"})
+MATCH (s:Scorecard {org_name: "NRA"})
+WITH s
+MATCH (i:Issue {name: "gun_policy"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "Giffords"}), (i:Issue {name: "gun_policy"})
+MATCH (s:Scorecard {org_name: "Giffords"})
+WITH s
+MATCH (i:Issue {name: "gun_policy"})
 MERGE (s)-[:COVERS]->(i);
