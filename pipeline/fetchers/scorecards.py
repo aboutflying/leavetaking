@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -158,6 +159,83 @@ class LCVFetcher:
                     state=state,
                     score=score,
                 )
+
+
+# ---------------------------------------------------------------------------
+# JsonFileFetcher (generic — for manually-maintained scorecard JSON files)
+# ---------------------------------------------------------------------------
+
+class JsonFileFetcher:
+    """Reads a manual-download scorecard JSON for one org.
+
+    Expected file: data/scorecards/{org_name_snake}_{year}.json
+    where org_name_snake = org_name.lower().replace(' ', '_')
+    e.g. 'ACLU' -> 'aclu_2024.json', 'Heritage Action' -> 'heritage_action_2024.json'
+
+    JSON format::
+
+        {
+          "org_name": "ACLU",
+          "year": 2024,
+          "issue": "civil_liberties",
+          "ratings": [
+            {"candidate_name": "Nancy Pelosi", "state": "CA", "score": 95},
+            {"candidate_name": "Ted Cruz", "state": "TX", "score": "F"}
+          ]
+        }
+
+    Score values accept float, int, or letter grade string (A+/A/.../F).
+    Blank/NA scores ("", "-", "N/A", "n/v", "NV") are silently skipped.
+    """
+
+    def __init__(self, data_dir: Path, org_name: str, issue: str) -> None:
+        self.data_dir = data_dir
+        self.org_name = org_name
+        self.issue = issue
+
+    def fetch(self, year: int) -> Iterator[RawRating]:
+        slug = self.org_name.lower().replace(" ", "_")
+        path = self.data_dir / f"{slug}_{year}.json"
+        if not path.exists():
+            logger.info("Scorecard file not found for %d: %s", year, path)
+            return
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            logger.error("Malformed JSON in scorecard file %s — skipping", path)
+            return
+
+        for r in data.get("ratings", []):
+            state = r.get("state", "").strip().upper()
+            candidate_name = r.get("candidate_name", "").strip()
+            if not candidate_name or not state:
+                logger.warning(
+                    "Skipping rating missing candidate_name or state: %r", r
+                )
+                continue
+
+            raw_val = r.get("score", "")
+            if isinstance(raw_val, str) and raw_val.strip() in _SKIP_SCORE_VALUES:
+                logger.debug("Skipping blank/NA score for %s", candidate_name)
+                continue
+
+            try:
+                score = normalize_score(raw_val)
+            except ValueError:
+                logger.warning(
+                    "Skipping unrecognized score %r for %s", raw_val, candidate_name
+                )
+                continue
+
+            yield RawRating(
+                org_name=self.org_name,
+                year=data.get("year", year),
+                issue=data.get("issue", self.issue),
+                candidate_name=candidate_name,
+                state=state,
+                score=score,
+            )
 
 
 # ---------------------------------------------------------------------------

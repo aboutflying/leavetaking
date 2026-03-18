@@ -21,6 +21,7 @@ from pipeline.loaders.graph_loader import (
     load_candidates,
     load_committee_contributions,
     load_committees,
+    load_scorecard_ratings,
     load_seed_data,
 )
 from pipeline.processors.entity_resolution import (
@@ -28,6 +29,7 @@ from pipeline.processors.entity_resolution import (
     filter_supported_contributions,
 )
 from pipeline.processors.score_computation import compute_all_scores, export_scores
+from pipeline.processors.scorecard_resolver import build_candidate_index, resolve_candidates
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,10 +103,14 @@ def run_fec(session) -> None:
 
 
 def run_scorecards(session) -> None:
-    """Step 2: Load scorecard data."""
+    """Step 2: Load scorecard data, resolve to FEC candidate IDs, and load edges."""
     logger.info("=== Scorecard Pipeline ===")
-    records = list(load_all_scorecards(settings.fec_cycles))
-    logger.info("Loaded %d raw scorecard ratings (resolver wiring in Task 2)", len(records))
+    raw = load_all_scorecards(settings.fec_cycles)
+    index = build_candidate_index(session)
+    logger.info("Candidate index built: %d entries", len(index))
+    ratings = list(resolve_candidates(raw, index))
+    logger.info("Resolved %d scorecard ratings", len(ratings))
+    load_scorecard_ratings(session, ratings)
 
 
 def run_scores(session) -> None:

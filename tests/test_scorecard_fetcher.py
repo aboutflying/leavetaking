@@ -11,7 +11,6 @@ import pytest
 from pipeline.fetchers.scorecards import (
     FETCHER_REGISTRY,
     LCVFetcher,
-    RawRating,
     load_all_scorecards,
     normalize_score,
 )
@@ -173,3 +172,116 @@ def test_load_all_scorecards_iterates_registry(tmp_path, monkeypatch):
     ratings = list(load_all_scorecards([2024]))
     assert len(ratings) == 1
     assert ratings[0].org_name == "League of Conservation Voters"
+
+
+# ---------------------------------------------------------------------------
+# JsonFileFetcher — JSON parsing and edge cases
+# ---------------------------------------------------------------------------
+
+from pipeline.fetchers.scorecards import JsonFileFetcher  # noqa: E402
+
+
+def _write_scorecard_json(tmp_path: Path, org_name: str, year: int, issue: str, ratings: list[dict]) -> Path:
+    """Write a minimal scorecard JSON file and return the path."""
+    import json
+    slug = org_name.lower().replace(" ", "_")
+    path = tmp_path / f"{slug}_{year}.json"
+    path.write_text(json.dumps({"org_name": org_name, "year": year, "issue": issue, "ratings": ratings}), encoding="utf-8")
+    return path
+
+
+def test_json_file_fetcher_yields_raw_ratings(tmp_path):
+    """JsonFileFetcher parses JSON and yields correct RawRating fields."""
+    _write_scorecard_json(tmp_path, "ACLU", 2024, "civil_liberties", [
+        {"candidate_name": "Nancy Pelosi", "state": "CA", "score": 95},
+    ])
+    fetcher = JsonFileFetcher(tmp_path, "ACLU", "civil_liberties")
+    ratings = list(fetcher.fetch(2024))
+
+    assert len(ratings) == 1
+    r = ratings[0]
+    assert r.org_name == "ACLU"
+    assert r.candidate_name == "Nancy Pelosi"
+    assert r.state == "CA"
+    assert r.score == 95.0
+    assert r.year == 2024
+    assert r.issue == "civil_liberties"
+
+
+def test_json_file_fetcher_letter_grade_converted(tmp_path):
+    """Letter grade scores are converted to 0-100 float via normalize_score."""
+    _write_scorecard_json(tmp_path, "ACLU", 2024, "civil_liberties", [
+        {"candidate_name": "Ted Cruz", "state": "TX", "score": "B+"},
+    ])
+    fetcher = JsonFileFetcher(tmp_path, "ACLU", "civil_liberties")
+    ratings = list(fetcher.fetch(2024))
+
+    assert len(ratings) == 1
+    assert ratings[0].score == 85.0
+
+
+def test_json_file_fetcher_missing_file_yields_nothing(tmp_path):
+    """Missing JSON file yields nothing and does not raise."""
+    fetcher = JsonFileFetcher(tmp_path, "ACLU", "civil_liberties")
+    ratings = list(fetcher.fetch(2024))
+    assert ratings == []
+
+
+def test_json_file_fetcher_skips_row_missing_state(tmp_path, caplog):
+    """Ratings with missing state are skipped with a WARNING."""
+    _write_scorecard_json(tmp_path, "ACLU", 2024, "civil_liberties", [
+        {"candidate_name": "Nancy Pelosi", "score": 95},  # no state
+        {"candidate_name": "Ted Cruz", "state": "TX", "score": 10},
+    ])
+    fetcher = JsonFileFetcher(tmp_path, "ACLU", "civil_liberties")
+    with caplog.at_level(logging.WARNING, logger="pipeline.fetchers.scorecards"):
+        ratings = list(fetcher.fetch(2024))
+
+    assert len(ratings) == 1
+    assert ratings[0].candidate_name == "Ted Cruz"
+    assert any("state" in msg.lower() or "missing" in msg.lower() for msg in caplog.messages)
+
+
+def test_json_file_fetcher_skips_row_missing_candidate_name(tmp_path, caplog):
+    """Ratings with missing candidate_name are skipped with a WARNING."""
+    _write_scorecard_json(tmp_path, "ACLU", 2024, "civil_liberties", [
+        {"state": "CA", "score": 95},  # no candidate_name
+        {"candidate_name": "Ted Cruz", "state": "TX", "score": 10},
+    ])
+    fetcher = JsonFileFetcher(tmp_path, "ACLU", "civil_liberties")
+    with caplog.at_level(logging.WARNING, logger="pipeline.fetchers.scorecards"):
+        ratings = list(fetcher.fetch(2024))
+
+    assert len(ratings) == 1
+    assert ratings[0].candidate_name == "Ted Cruz"
+
+
+def test_json_file_fetcher_malformed_json_logs_error_and_yields_nothing(tmp_path, caplog):
+    """Malformed JSON file logs ERROR and yields nothing — pipeline must not crash."""
+    slug = "aclu"
+    path = tmp_path / f"{slug}_2024.json"
+    path.write_text("not valid json {{{{", encoding="utf-8")
+
+    fetcher = JsonFileFetcher(tmp_path, "ACLU", "civil_liberties")
+    with caplog.at_level(logging.ERROR, logger="pipeline.fetchers.scorecards"):
+        ratings = list(fetcher.fetch(2024))
+
+    assert ratings == []
+    assert any("malformed" in msg.lower() or "json" in msg.lower() for msg in caplog.messages)
+
+
+def test_json_file_fetcher_skips_blank_score(tmp_path, caplog):
+    """Blank/NA score values are silently skipped at DEBUG level (not WARNING)."""
+    _write_scorecard_json(tmp_path, "ACLU", 2024, "civil_liberties", [
+        {"candidate_name": "Jane Doe", "state": "OH", "score": ""},
+        {"candidate_name": "John Smith", "state": "TX", "score": 50},
+    ])
+    fetcher = JsonFileFetcher(tmp_path, "ACLU", "civil_liberties")
+    with caplog.at_level(logging.WARNING, logger="pipeline.fetchers.scorecards"):
+        ratings = list(fetcher.fetch(2024))
+
+    assert len(ratings) == 1
+    assert ratings[0].candidate_name == "John Smith"
+    # Blank score should NOT produce a WARNING (it's a known skip value, not an error)
+    warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert not any("Jane Doe" in m for m in warning_msgs)
