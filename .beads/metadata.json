@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "leavetaking",
+  "project_id": "0f5447b4-4d39-4c64-8bb8-81fed370d1bd"
+}
