@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+.env
+data/
+*.db
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+neo4j_data/
+neo4j_logs/
