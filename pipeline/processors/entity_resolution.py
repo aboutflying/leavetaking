@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterator
 from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
@@ -93,14 +94,30 @@ def match_brand_to_corporation(
 def filter_corporate_pacs(committees: list[dict]) -> list[dict]:
     """Filter FEC committee records to corporate PACs.
 
-    Corporate PACs have designation 'B' (lobbyist/registrant PAC) or 'D' (leadership PAC)
-    or connected_org_name is non-empty.
+    Corporate PACs are identified by:
+    - connected_org_name is non-empty (PAC is connected to a sponsoring organization), OR
+    - interest_group_category == 'C' (ORG_TP field: Corporation)
+
+    Note: designation 'B' (lobbyist PAC) and 'D' (leadership PAC) are NOT reliable
+    corporate PAC signals and are intentionally excluded from this filter.
     """
     return [
         c for c in committees
         if c.get("connected_org_name", "").strip()
-        or c.get("designation") in ("B", "D")
+        or c.get("interest_group_category", "").strip() == "C"
     ]
+
+
+def filter_supported_contributions(rows: Iterator[dict]) -> Iterator[dict]:
+    """Yield only pas2 rows representing direct support to candidates.
+
+    Filters to transaction types 24K (direct contribution) and 24Z (in-kind support).
+    Drops opposition independent expenditures (24A, 24N) and all other types.
+    """
+    supported_types = {"24K", "24Z"}
+    for row in rows:
+        if (row.get("transaction_type") or "").strip() in supported_types:
+            yield row
 
 
 def filter_executive_donations(

@@ -80,13 +80,16 @@ class TestFilterCorporatePacs:
         assert len(result) == 1
         assert result[0]["committee_id"] == "C001"
 
-    def test_filters_by_designation(self):
+    def test_filters_by_org_type_corporation(self):
+        # interest_group_category='C' (ORG_TP=Corporation) triggers inclusion.
+        # designation 'B' (lobbyist PAC) alone is NOT a corporate PAC signal.
         committees = [
-            {"committee_id": "C001", "connected_org_name": "", "designation": "B"},
-            {"committee_id": "C002", "connected_org_name": "", "designation": "P"},
+            {"committee_id": "C001", "connected_org_name": "", "designation": "B", "interest_group_category": "C"},
+            {"committee_id": "C002", "connected_org_name": "", "designation": "P", "interest_group_category": ""},
         ]
         result = filter_corporate_pacs(committees)
         assert len(result) == 1
+        assert result[0]["committee_id"] == "C001"
 
 
 class TestFilterExecutiveDonations:
