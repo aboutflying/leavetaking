@@ -272,12 +272,18 @@ def load_scorecard_ratings(session: Session, ratings: list[dict]) -> int:
     return _batch_load(session, query, ratings)
 
 
+_LOAD_LOG_INTERVAL = 50_000
+
+
 def _batch_load(session: Session, query: str, records: list[dict]) -> int:
     """Execute a batched UNWIND load query."""
+    n = len(records)
     total = 0
-    for i in range(0, len(records), BATCH_SIZE):
+    for i in range(0, n, BATCH_SIZE):
         batch = records[i : i + BATCH_SIZE]
         session.run(query, batch=batch)
         total += len(batch)
+        if n >= _LOAD_LOG_INTERVAL and total % _LOAD_LOG_INTERVAL == 0:
+            logger.info("  loaded %d / %d records (%.0f%%)", total, n, total / n * 100)
     logger.info("Loaded %d records", total)
     return total

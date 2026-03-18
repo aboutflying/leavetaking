@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import logging
 import zipfile
 from collections.abc import Iterator
@@ -109,14 +110,42 @@ def parse_candidate_committee_linkage(path: Path) -> Iterator[dict]:
     yield from _stream_pipe_delimited(path, CANDIDATE_COMMITTEE_LINKAGE_COLS)
 
 
-def _stream_pipe_delimited(path: Path, columns: list[str]) -> Iterator[dict]:
-    """Stream a pipe-delimited FEC bulk file, yielding one dict per row."""
-    logger.info("Streaming FEC bulk file: %s", path.name)
-    with open(path, encoding="latin-1") as f:
+def _stream_pipe_delimited(
+    path: Path,
+    columns: list[str],
+    log_interval: int = 50_000,
+) -> Iterator[dict]:
+    """Stream a pipe-delimited FEC bulk file, yielding one dict per row.
+
+    Logs progress every ``log_interval`` rows so long-running files (e.g. pas2)
+    produce visible output instead of appearing to hang.
+    """
+    file_size = path.stat().st_size
+    logger.info("Streaming FEC bulk file: %s (%s)", path.name, _fmt_bytes(file_size))
+    # Open in binary mode so bf.tell() works alongside csv.reader's next() calls.
+    # (text-mode tell() raises OSError once next() has been called on the iterator.)
+    with open(path, "rb") as bf:
+        f = io.TextIOWrapper(bf, encoding="latin-1")
         reader = csv.reader(f, delimiter="|")
+        row_count = 0
         for row in reader:
             if len(row) >= len(columns):
                 yield dict(zip(columns, row[: len(columns)]))
+            row_count += 1
+            if row_count % log_interval == 0:
+                pct = bf.tell() / file_size * 100 if file_size else 0
+                logger.info("  %s: %d rows streamed (%.0f%%)", path.name, row_count, pct)
+        f.detach()  # prevent TextIOWrapper from closing bf on __exit__
+    logger.info("  %s: complete — %d rows", path.name, row_count)
+
+
+def _fmt_bytes(n: int) -> str:
+    """Format a byte count as a human-readable string."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}"
+        n //= 1024
+    return f"{n} TB"
 
 
 def fetch_committee_by_name(name: str) -> list[dict]:

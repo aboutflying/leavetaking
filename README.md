@@ -49,7 +49,7 @@ cp .env.example .env
 docker compose up -d neo4j
 
 # Install Python dependencies
-pip install neo4j fastapi uvicorn requests pandas pydantic pydantic-settings
+pip install -e ".[dev]"
 
 # Apply schema and seed data
 python -m pipeline.run_pipeline --steps schema
@@ -118,7 +118,7 @@ This is how the tool stays politically neutral — it surfaces data, and users d
 
 ## Data Sources
 
-- **FEC Bulk Data** — PAC and individual campaign contributions
+- **FEC Bulk Data** — PAC contributions (committee master, candidate master, pas2, ccl); individual contributions deferred to Tier 2
 - **Wikidata SPARQL** — Corporate ownership and subsidiary relationships
 - **OpenCorporates** — Company registry data across 145 jurisdictions
 - **Legislative Scorecards** — Issue ratings from advocacy organizations
@@ -132,7 +132,7 @@ This is how the tool stays politically neutral — it surfaces data, and users d
 ## Testing
 
 ```bash
-pip install pytest httpx
+pip install -e ".[dev]"
 python -m pytest tests/ -v
 ```
 

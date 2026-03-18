@@ -18,9 +18,13 @@ A Python pipeline that:
    Wikidata SPARQL queries and OpenCorporates API lookups. Outputs Brand -> Corporation
    OWNED_BY edges and Corporation -> Corporation SUBSIDIARY_OF edges.
 
-2. **FEC Contribution Ingestion**: Pulls FEC bulk data files (committee contributions
-   and individual contributions), filters to corporate PACs and senior executive donations,
-   and loads as DONATED_TO / CONTRIBUTED_TO edges in the graph.
+2. **FEC Contribution Ingestion** (Tier 1 — implemented): Streams FEC bulk data files
+   using Python generators. Loads: Committee Master (cm), Candidate Master (cn),
+   Committee-to-Candidate contributions (pas2, filtered to support-only 24K/24Z
+   transaction types), and Candidate-Committee Linkage (ccl). Corporate PACs are
+   identified by `connected_org_name` (non-empty) or `interest_group_category == 'C'`.
+   Amendment deduplication via Neo4j MERGE on `tran_id` (last-write-wins). Individual
+   contributions (indiv) and executive donation tracking are Tier 2 (deferred).
 
 3. **Scorecard Ingestion**: Pulls legislative scorecards from organizations (ACLU, EFF,
    League of Conservation Voters, etc.) and loads as SCORED/RATES edges linking candidates
@@ -74,7 +78,8 @@ Lightweight API (FastAPI) that:
 (:Corporation)-[:OPERATES_PAC]->(:Committee)
 (:Person)-[:EXECUTIVE_OF]->(:Corporation)
 (:Person)-[:DONATED_TO {amount, date, cycle}]->(:Committee | :Candidate)
-(:Committee)-[:CONTRIBUTED_TO {amount, date, cycle}]->(:Candidate)
+(:Committee)-[:CONTRIBUTED_TO {tran_id, amount, date, cycle}]->(:Candidate)
+(:Candidate)-[:AUTHORIZED_COMMITTEE {linkage_id, designation, type}]->(:Committee)
 (:Candidate)-[:SCORED {score, year}]->(:Issue)
 (:Scorecard)-[:RATES {score, year}]->(:Candidate)
 (:Scorecard)-[:COVERS]->(:Issue)
@@ -118,8 +123,9 @@ RETURN issue.name,
 - **OpenFEC API** (api.open.fec.gov): FEC campaign finance data. Free API key, 1000 req/hr
   with demo key. Also available as bulk CSV downloads from fec.gov/data/browse-data.
 - **FEC Bulk Data**: https://www.fec.gov/data/browse-data/?tab=bulk-data
-  Key files: committee master, candidate master, contributions by individuals,
-  contributions from committees to candidates.
+  Tier 1 files: committee master (cm), candidate master (cn), committee-to-candidate
+  contributions (pas2), candidate-committee linkage (ccl). Tier 2 (deferred): individual
+  contributions (indiv) for executive donation tracking.
 - **Wikidata SPARQL** (query.wikidata.org): Corporate ownership/subsidiary relationships.
   Properties: P749 (parent organization), P355 (subsidiary), P1128 (employees),
   P414 (stock exchange), P946 (ISIN). Free, no auth needed.
@@ -203,11 +209,12 @@ political-purchaser/
 
 ## MVP Milestones
 
-1. Neo4j running in Docker, schema constraints applied, seed Issue/Scorecard nodes loaded
-2. Brand resolution pipeline: top 500 Amazon brands mapped to corporate parents via Wikidata
-3. FEC contribution pipeline: bulk data loaded, PAC and executive donations in graph
-4. Scorecard pipeline: at least 3 scorecards loaded (ACLU, LCV, one conservative baseline)
-5. Pre-computed score export working
-6. Extension shell: badges rendering on Amazon search results from cached scores
-7. Graph trail API endpoint + visualization in extension detail view
-8. User preference configuration (issues, scorecards, weighting)
+1. ✅ Neo4j running in Docker, schema constraints applied, seed Issue/Scorecard nodes loaded
+2. ⬜ Brand resolution pipeline: top 500 Amazon brands mapped to corporate parents via Wikidata
+3. ✅ FEC Tier 1 pipeline: PAC contributions (cm, cn, pas2, ccl) loaded with streaming + filters
+4. ⬜ FEC Tier 2 pipeline: executive individual donations (indiv) linked via Person nodes
+5. ⬜ Scorecard pipeline: at least 3 scorecards loaded (ACLU, LCV, one conservative baseline)
+6. ⬜ Pre-computed score export working
+7. ⬜ Extension shell: badges rendering on Amazon search results from cached scores
+8. ⬜ Graph trail API endpoint + visualization in extension detail view
+9. ⬜ User preference configuration (issues, scorecards, weighting)
