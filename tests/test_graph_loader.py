@@ -219,3 +219,66 @@ def test_load_brands_preserves_existing_aliases_when_none_passed():
         "CASE must end with ELSE brand.aliases to preserve existing aliases "
         "when incoming dict passes None"
     )
+
+
+# ---------------------------------------------------------------------------
+# fetch_corporation_names — includes aliases
+# ---------------------------------------------------------------------------
+
+from pipeline.loaders.graph_loader import fetch_corporation_names, fetch_corporate_pacs_from_graph  # noqa: E402
+
+
+def test_fetch_corporation_names_includes_aliases():
+    """fetch_corporation_names returns canonical names AND aliases.
+
+    Bug caught: only canonical names returned — PAC matching misses cases
+    where FEC connected_org_name matches an alias (e.g. 'Alphabet' when
+    canonical is 'Alphabet Inc.').
+    """
+    session = _make_session()
+    session.run.return_value = [
+        {"name": "Alphabet Inc.", "aliases": ["Alphabet", "Google Parent"]},
+    ]
+
+    names = fetch_corporation_names(session)
+
+    assert "Alphabet Inc." in names
+    assert "Alphabet" in names
+    assert "Google Parent" in names
+
+
+def test_fetch_corporation_names_deduplicates():
+    """fetch_corporation_names removes duplicates across names and aliases.
+
+    Bug caught: if a name appears as both a canonical name and an alias on
+    another node (after dedup), the list contains duplicates that cause
+    resolve_pac_to_corporation to score the same name twice.
+    """
+    session = _make_session()
+    session.run.return_value = [
+        {"name": "Apple Inc.", "aliases": ["Apple"]},
+        {"name": "Apple",      "aliases": []},  # hypothetical pre-dedup state
+    ]
+
+    names = fetch_corporation_names(session)
+
+    assert names.count("Apple") == 1
+    assert names.count("Apple Inc.") == 1
+
+
+def test_fetch_corporate_pacs_from_graph_returns_connected_orgs():
+    """fetch_corporate_pacs_from_graph returns Committee nodes with connected_org set.
+
+    Bug caught: function returns all committees instead of filtering to corporate
+    PACs, bloating resolve_pac_to_corporation with irrelevant candidates.
+    """
+    session = _make_session()
+    session.run.return_value = [
+        {"committee_id": "C001", "connected_org_name": "Apple Inc."},
+    ]
+
+    pacs = fetch_corporate_pacs_from_graph(session)
+
+    assert len(pacs) == 1
+    assert pacs[0]["committee_id"] == "C001"
+    assert pacs[0]["connected_org_name"] == "Apple Inc."

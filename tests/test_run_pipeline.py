@@ -820,3 +820,68 @@ class TestDeduplicateCorporationsByQid:
         new_aliases = alias_kwargs.get("new_aliases", [])
         assert "Alphabet" in new_aliases
         assert "Alphabet Holdings" in new_aliases
+
+
+# ---------------------------------------------------------------------------
+# run_pac_linkage tests
+# ---------------------------------------------------------------------------
+
+from pipeline.run_pipeline import run_pac_linkage  # noqa: E402
+
+
+class TestRunPacLinkage:
+    def test_links_pacs_to_corporations(self):
+        """resolve_pac_to_corporation result is passed to load_pac_edges.
+
+        Bug caught: function fetches PACs and corps but never calls load_pac_edges,
+        leaving all OPERATES_PAC edges missing.
+        """
+        session = _make_session()
+
+        with (
+            patch(f"{_PATCH_BASE}.fetch_corporate_pacs_from_graph",
+                  return_value=[{"committee_id": "C001", "connected_org_name": "Apple Inc."}]),
+            patch(f"{_PATCH_BASE}.fetch_corporation_names",
+                  return_value=["Apple Inc."]),
+            patch(f"{_PATCH_BASE}.resolve_pac_to_corporation",
+                  return_value=[{"corporation_name": "Apple Inc.", "committee_id": "C001"}]),
+            patch(f"{_PATCH_BASE}.load_pac_edges") as mock_load,
+        ):
+            run_pac_linkage(session)
+
+        mock_load.assert_called_once()
+        edges = mock_load.call_args[0][1]
+        assert {"corporation_name": "Apple Inc.", "committee_id": "C001"} in edges
+
+    def test_skips_linkage_when_no_corporations(self):
+        """Logs warning and returns early when no Corporation nodes exist.
+
+        Bug caught: calling resolve_pac_to_corporation with an empty corp_names
+        list produces no matches but still calls load_pac_edges with an empty
+        list — wasteful and misleading in logs.
+        """
+        session = _make_session()
+
+        with (
+            patch(f"{_PATCH_BASE}.fetch_corporate_pacs_from_graph", return_value=[]),
+            patch(f"{_PATCH_BASE}.fetch_corporation_names", return_value=[]),
+            patch(f"{_PATCH_BASE}.resolve_pac_to_corporation") as mock_resolve,
+            patch(f"{_PATCH_BASE}.load_pac_edges") as mock_load,
+        ):
+            run_pac_linkage(session)
+
+        mock_resolve.assert_not_called()
+        mock_load.assert_not_called()
+
+    def test_run_fec_does_not_call_load_pac_edges(fec_patches):
+        """run_fec must no longer call load_pac_edges — PAC linkage is decoupled.
+
+        Bug caught: leaving the PAC linkage block inside run_fec means
+        '--steps all' runs it twice (once in fec, once in pac_linkage).
+        """
+        from pipeline.run_pipeline import run_fec
+
+        with patch(f"{_PATCH_BASE}.load_pac_edges") as mock_load_pac:
+            run_fec(_make_session())
+
+        mock_load_pac.assert_not_called()

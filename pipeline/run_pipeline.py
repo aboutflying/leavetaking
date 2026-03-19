@@ -24,6 +24,7 @@ from pipeline.fetchers.wikidata import (
 )
 from pipeline.loaders.graph_loader import (
     apply_schema,
+    fetch_corporate_pacs_from_graph,
     fetch_corporation_names,
     is_fec_cycle_loaded,
     load_brands,
@@ -510,22 +511,6 @@ def run_fec(session, force: bool = False) -> None:
             len(committees),
         )
 
-        # Link corporate PACs to Corporation nodes already in the graph.
-        # Requires brand resolution to have run first (which loads Corporation nodes).
-        corp_names = fetch_corporation_names(session)
-        if corp_names:
-            pac_edges = resolve_pac_to_corporation(corporate_pacs, corp_names)
-            load_pac_edges(session, pac_edges)
-            logger.info(
-                "Linked %d corporate PACs to corporations (%d unmatched)",
-                len(pac_edges),
-                len(corporate_pacs) - len(pac_edges),
-            )
-        else:
-            logger.warning(
-                "No Corporation nodes found — skipping PAC linkage. Run brand resolution first."
-            )
-
         # Stream pas2, filter to support-only transaction types (24K, 24Z),
         # materialize, tag with cycle, then load.
         supported_contribs = list(
@@ -544,6 +529,39 @@ def run_fec(session, force: bool = False) -> None:
 
         mark_fec_cycle_loaded(session, cycle)
         logger.info("Cycle %d load complete", cycle)
+
+
+def run_pac_linkage(session) -> None:
+    """Step 2b: Link corporate PACs to Corporation nodes.
+
+    Reads Committee nodes already in the graph (loaded by run_fec), matches
+    their connected_org name against Corporation names and aliases, and writes
+    OPERATES_PAC edges. Runs in seconds — no network calls, no file downloads.
+
+    Decoupled from run_fec so it can be re-run independently after brand
+    resolution adds or renames Corporation nodes without re-downloading FEC data.
+
+    Requires run_fec to have run first (Committee nodes must exist).
+    Requires run_brands to have run first (Corporation nodes must exist).
+    """
+    logger.info("=== PAC Linkage Pipeline ===")
+    corporate_pacs = fetch_corporate_pacs_from_graph(session)
+    logger.info("Found %d corporate PAC committees in graph", len(corporate_pacs))
+
+    corp_names = fetch_corporation_names(session)
+    if not corp_names:
+        logger.warning(
+            "No Corporation nodes found — skipping PAC linkage. Run brand resolution first."
+        )
+        return
+
+    pac_edges = resolve_pac_to_corporation(corporate_pacs, corp_names)
+    load_pac_edges(session, pac_edges)
+    logger.info(
+        "Linked %d corporate PACs to corporations (%d unmatched)",
+        len(pac_edges),
+        len(corporate_pacs) - len(pac_edges),
+    )
 
 
 def run_scorecards(session) -> None:
@@ -581,7 +599,7 @@ def main():
     parser.add_argument(
         "--steps",
         nargs="+",
-        choices=["schema", "brands", "fec", "scorecards", "scores", "all"],
+        choices=["schema", "brands", "fec", "pac_linkage", "scorecards", "scores", "all"],
         default=["all"],
         help="Pipeline steps to run",
     )
@@ -626,6 +644,8 @@ def main():
                 )
             if run_all or "fec" in steps:
                 run_fec(session, force=args.force)
+            if run_all or "pac_linkage" in steps:
+                run_pac_linkage(session)
             if run_all or "scorecards" in steps:
                 run_scorecards(session)
             if run_all or "scores" in steps:

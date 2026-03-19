@@ -257,9 +257,48 @@ def load_committees(session: Session, committees: list[dict]) -> int:
 
 
 def fetch_corporation_names(session: Session) -> list[str]:
-    """Return all Corporation.name values currently in the graph."""
-    result = session.run("MATCH (c:Corporation) RETURN c.name AS name")
-    return [record["name"] for record in result if record["name"]]
+    """Return all Corporation name strings (canonical names + aliases) from the graph.
+
+    Including aliases ensures PAC matching works even when the FEC-recorded
+    connected_org_name matches an alias rather than the canonical node name.
+    Duplicates are removed; empty strings are excluded.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) RETURN c.name AS name, coalesce(c.aliases, []) AS aliases"
+    )
+    seen: set[str] = set()
+    names: list[str] = []
+    for record in result:
+        for n in [record["name"]] + list(record["aliases"]):
+            if n and n not in seen:
+                names.append(n)
+                seen.add(n)
+    return names
+
+
+def fetch_corporate_pacs_from_graph(session: Session) -> list[dict]:
+    """Return corporate PAC Committee nodes already loaded in the graph.
+
+    Equivalent to filter_corporate_pacs() applied to the Neo4j Committee nodes
+    rather than to raw FEC CSV rows. Used by run_pac_linkage to re-run linkage
+    without re-downloading FEC bulk files.
+
+    Returns:
+        List of dicts with keys: committee_id, connected_org_name.
+    """
+    result = session.run("""
+        MATCH (comm:Committee)
+        WHERE (comm.connected_org IS NOT NULL
+               AND comm.connected_org <> ''
+               AND comm.connected_org <> 'NONE')
+           OR comm.org_type = 'C'
+        RETURN comm.fec_committee_id AS committee_id,
+               coalesce(comm.connected_org, '') AS connected_org_name
+    """)
+    return [
+        {"committee_id": r["committee_id"], "connected_org_name": r["connected_org_name"]}
+        for r in result
+    ]
 
 
 def load_pac_edges(session: Session, edges: list[dict]) -> int:
