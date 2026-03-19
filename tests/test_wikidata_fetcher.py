@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 import requests
 
 from pipeline.fetchers.wikidata import find_corporation
@@ -20,13 +19,9 @@ _CORP_BINDING = {
     "parentLabel": {"type": "literal", "value": "Procter & Gamble"},
 }
 
-_SPARQL_RESPONSE_ONE = {
-    "results": {"bindings": [_CORP_BINDING]}
-}
+_SPARQL_RESPONSE_ONE = {"results": {"bindings": [_CORP_BINDING]}}
 
-_SPARQL_RESPONSE_EMPTY = {
-    "results": {"bindings": []}
-}
+_SPARQL_RESPONSE_EMPTY = {"results": {"bindings": []}}
 
 
 def _mock_get(json_data: dict):

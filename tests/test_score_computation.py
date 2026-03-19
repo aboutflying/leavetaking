@@ -84,9 +84,27 @@ class TestOutputSchema:
         """Catches wrong grouping key, wrong dollar aggregation, wrong schema shape."""
         mock_session = MagicMock()
         mock_session.run.return_value = [
-            {"issue": "environment", "scorecard": "LCV",  "candidate_id": "C001", "score": 80.0, "dollars": 50_000.0},
-            {"issue": "environment", "scorecard": "LCV",  "candidate_id": "C002", "score": 40.0, "dollars": 150_000.0},
-            {"issue": "labor",       "scorecard": "AFL",  "candidate_id": "C003", "score": 60.0, "dollars": 75_000.0},
+            {
+                "issue": "environment",
+                "scorecard": "LCV",
+                "candidate_id": "C001",
+                "score": 80.0,
+                "dollars": 50_000.0,
+            },
+            {
+                "issue": "environment",
+                "scorecard": "LCV",
+                "candidate_id": "C002",
+                "score": 40.0,
+                "dollars": 150_000.0,
+            },
+            {
+                "issue": "labor",
+                "scorecard": "AFL",
+                "candidate_id": "C003",
+                "score": 60.0,
+                "dollars": 75_000.0,
+            },
         ]
 
         result = compute_brand_scores(mock_session, "Nike", cycles=[2022, 2024])
@@ -102,8 +120,20 @@ class TestOutputSchema:
         """Catches double-counting when same candidate appears from both PAC and exec paths."""
         mock_session = MagicMock()
         mock_session.run.return_value = [
-            {"issue": "environment", "scorecard": "LCV", "candidate_id": "C001", "score": 80.0, "dollars": 50_000.0},
-            {"issue": "environment", "scorecard": "LCV", "candidate_id": "C001", "score": 80.0, "dollars": 30_000.0},
+            {
+                "issue": "environment",
+                "scorecard": "LCV",
+                "candidate_id": "C001",
+                "score": 80.0,
+                "dollars": 50_000.0,
+            },
+            {
+                "issue": "environment",
+                "scorecard": "LCV",
+                "candidate_id": "C001",
+                "score": 80.0,
+                "dollars": 30_000.0,
+            },
         ]
 
         result = compute_brand_scores(mock_session, "Nike", cycles=[2022])
@@ -124,8 +154,20 @@ class TestOutputSchema:
         """Catches scorecard scores being merged — per-org breakdown must be preserved."""
         mock_session = MagicMock()
         mock_session.run.return_value = [
-            {"issue": "environment", "scorecard": "LCV",  "candidate_id": "C001", "score": 80.0, "dollars": 100_000.0},
-            {"issue": "environment", "scorecard": "ACLU", "candidate_id": "C002", "score": 20.0, "dollars": 100_000.0},
+            {
+                "issue": "environment",
+                "scorecard": "LCV",
+                "candidate_id": "C001",
+                "score": 80.0,
+                "dollars": 100_000.0,
+            },
+            {
+                "issue": "environment",
+                "scorecard": "ACLU",
+                "candidate_id": "C002",
+                "score": 20.0,
+                "dollars": 100_000.0,
+            },
         ]
 
         result = compute_brand_scores(mock_session, "Nike", cycles=[2022])

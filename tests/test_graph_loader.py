@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock
 
-import pytest
 
 from pipeline.loaders.graph_loader import (
     load_candidate_committee_linkage,
@@ -48,6 +47,7 @@ def _contribution_row(**kwargs) -> dict:
 # load_candidate_committee_linkage tests
 # ---------------------------------------------------------------------------
 
+
 def test_load_candidate_committee_linkage_runs_merge_query():
     """Function calls session.run with a query containing AUTHORIZED_COMMITTEE."""
     session = _make_session()
@@ -79,6 +79,7 @@ def test_load_candidate_committee_linkage_logs_missing_candidate_warning(caplog)
 # ---------------------------------------------------------------------------
 # load_committee_contributions tests
 # ---------------------------------------------------------------------------
+
 
 def test_load_committee_contributions_uses_merge_on_tran_id():
     """Cypher uses MERGE keyed on tran_id (not CREATE) for amendment dedup."""

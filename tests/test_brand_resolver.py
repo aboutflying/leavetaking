@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
-import pytest
 
 from pipeline.processors.brand_resolver import resolve_all_brands, resolve_brand
 
@@ -15,7 +13,13 @@ from pipeline.processors.brand_resolver import resolve_all_brands, resolve_brand
 # ---------------------------------------------------------------------------
 
 GOOD_WD_MATCH = [{"qid": "Q312", "name": "Apple Inc.", "source": "wikidata"}]
-GOOD_OC_MATCH = [{"name": "Mars, Inc.", "opencorporates_url": "https://opencorporates.com/companies/us_de/123", "jurisdiction_code": "us_de"}]
+GOOD_OC_MATCH = [
+    {
+        "name": "Mars, Inc.",
+        "opencorporates_url": "https://opencorporates.com/companies/us_de/123",
+        "jurisdiction_code": "us_de",
+    }
+]
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +67,10 @@ class TestResolveAllBrandsCaching:
         """
         cache_file = tmp_path / "brand_resolutions.json"
 
-        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd, \
-             patch("pipeline.processors.brand_resolver._save_cache") as mock_save:
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver._save_cache") as mock_save,
+        ):
             mock_wd.return_value = GOOD_WD_MATCH
             resolve_all_brands(["Apple", "Samsung"], cache_file)
 
@@ -79,8 +85,10 @@ class TestResolveAllBrandsCaching:
         """
         cache_file = tmp_path / "brand_resolutions.json"
 
-        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd, \
-             patch("pipeline.processors.brand_resolver.search_companies") as mock_oc:
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
             mock_wd.side_effect = [GOOD_WD_MATCH, []]  # Apple resolves, Mars doesn't
             mock_oc.return_value = []
             result = resolve_all_brands(["Apple", "Mars"], cache_file)
@@ -102,8 +110,10 @@ class TestResolveBrand:
         Bug caught: unconditional OC calls exhaust the 50 req/day free tier
         even when Wikidata already resolved the brand.
         """
-        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd, \
-             patch("pipeline.processors.brand_resolver.search_companies") as mock_oc:
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
             mock_wd.return_value = GOOD_WD_MATCH  # Apple Inc. matches "Apple" >= 0.7
             result = resolve_brand("Apple", oc_calls_used=[0])
 
@@ -117,8 +127,10 @@ class TestResolveBrand:
         SC Johnson never resolve because Wikidata data is sparse.
         """
         oc_calls_used = [0]
-        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd, \
-             patch("pipeline.processors.brand_resolver.search_companies") as mock_oc:
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
             mock_wd.return_value = []
             mock_oc.return_value = GOOD_OC_MATCH
             result = resolve_brand("Mars", oc_calls_used=oc_calls_used, max_oc_calls=20)
@@ -132,8 +144,10 @@ class TestResolveBrand:
         Bug caught: exceeding the 50 req/day free tier triggers HTTP 403,
         which breaks the rest of the pipeline run.
         """
-        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd, \
-             patch("pipeline.processors.brand_resolver.search_companies") as mock_oc:
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
             mock_wd.return_value = []
             result = resolve_brand("Mars", oc_calls_used=[20], max_oc_calls=20)
 

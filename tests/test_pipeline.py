@@ -7,6 +7,7 @@ from pipeline.processors.entity_resolution import (
     filter_executive_donations,
     match_brand_to_corporation,
     normalize_company_name,
+    resolve_pac_to_corporation,
     similarity,
 )
 
@@ -84,12 +85,75 @@ class TestFilterCorporatePacs:
         # interest_group_category='C' (ORG_TP=Corporation) triggers inclusion.
         # designation 'B' (lobbyist PAC) alone is NOT a corporate PAC signal.
         committees = [
-            {"committee_id": "C001", "connected_org_name": "", "designation": "B", "interest_group_category": "C"},
-            {"committee_id": "C002", "connected_org_name": "", "designation": "P", "interest_group_category": ""},
+            {
+                "committee_id": "C001",
+                "connected_org_name": "",
+                "designation": "B",
+                "interest_group_category": "C",
+            },
+            {
+                "committee_id": "C002",
+                "connected_org_name": "",
+                "designation": "P",
+                "interest_group_category": "",
+            },
         ]
         result = filter_corporate_pacs(committees)
         assert len(result) == 1
         assert result[0]["committee_id"] == "C001"
+
+    def test_excludes_none_string_connected_org(self):
+        # FEC data sometimes has literal "NONE" instead of empty string.
+        committees = [
+            {"committee_id": "C001", "connected_org_name": "NONE", "interest_group_category": ""},
+            {
+                "committee_id": "C002",
+                "connected_org_name": "Apple Inc",
+                "interest_group_category": "",
+            },
+        ]
+        result = filter_corporate_pacs(committees)
+        assert len(result) == 1
+        assert result[0]["committee_id"] == "C002"
+
+
+class TestResolvePacToCorporation:
+    def test_matches_by_name(self):
+        pacs = [{"committee_id": "C001", "connected_org_name": "Apple Inc."}]
+        result = resolve_pac_to_corporation(pacs, ["Apple"])
+        assert result == [{"corporation_name": "Apple", "committee_id": "C001"}]
+
+    def test_no_match_below_threshold(self):
+        pacs = [{"committee_id": "C001", "connected_org_name": "XYZ CORPORATION"}]
+        result = resolve_pac_to_corporation(pacs, ["Apple", "Microsoft"])
+        assert result == []
+
+    def test_skips_empty_connected_org(self):
+        pacs = [{"committee_id": "C001", "connected_org_name": ""}]
+        result = resolve_pac_to_corporation(pacs, ["Apple"])
+        assert result == []
+
+    def test_skips_none_string_connected_org(self):
+        pacs = [{"committee_id": "C001", "connected_org_name": "NONE"}]
+        result = resolve_pac_to_corporation(pacs, ["Apple"])
+        assert result == []
+
+    def test_picks_best_match(self):
+        pacs = [{"committee_id": "C001", "connected_org_name": "Microsoft Corporation"}]
+        result = resolve_pac_to_corporation(pacs, ["Apple", "Microsoft", "Micro Systems"])
+        assert len(result) == 1
+        assert result[0]["corporation_name"] == "Microsoft"
+
+    def test_multiple_pacs(self):
+        pacs = [
+            {"committee_id": "C001", "connected_org_name": "Apple Inc."},
+            {"committee_id": "C002", "connected_org_name": "Exxon Mobil Corporation"},
+            {"committee_id": "C003", "connected_org_name": "NONE"},
+        ]
+        result = resolve_pac_to_corporation(pacs, ["Apple", "Exxon Mobil", "Microsoft"])
+        assert len(result) == 2
+        ids = {r["committee_id"] for r in result}
+        assert ids == {"C001", "C002"}
 
 
 class TestFilterExecutiveDonations:

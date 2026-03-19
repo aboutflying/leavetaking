@@ -78,7 +78,9 @@ def resolve_brand(
 
     # --- OpenCorporates fallback (guarded by quota) ---
     if oc_calls_used[0] >= max_oc_calls:
-        logger.debug("OC quota exhausted (%d/%d) — skipping '%s'", oc_calls_used[0], max_oc_calls, brand_name)
+        logger.debug(
+            "OC quota exhausted (%d/%d) — skipping '%s'", oc_calls_used[0], max_oc_calls, brand_name
+        )
         return None
 
     try:
@@ -122,7 +124,9 @@ def resolve_all_brands(
     unresolved = [b for b in brand_names if b not in cache]
     logger.info(
         "Brand resolution: %d brands total, %d already cached, %d to resolve",
-        len(brand_names), len(brand_names) - len(unresolved), len(unresolved),
+        len(brand_names),
+        len(brand_names) - len(unresolved),
+        len(unresolved),
     )
 
     for brand_name in unresolved:
@@ -135,7 +139,8 @@ def resolve_all_brands(
     if unmatched:
         logger.warning(
             "Could not resolve %d brand(s): %s",
-            len(unmatched), ", ".join(sorted(unmatched)),
+            len(unmatched),
+            ", ".join(sorted(unmatched)),
         )
     logger.info("Brand resolution complete: %d/%d resolved", len(resolved), len(brand_names))
     return resolved

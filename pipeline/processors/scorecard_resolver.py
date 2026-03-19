@@ -14,7 +14,22 @@ from pipeline.fetchers.scorecards import RawRating
 
 logger = logging.getLogger(__name__)
 
-_SUFFIXES = {"JR", "SR", "II", "III", "IV", "MR", "MR.", "MS", "MS.", "DR", "DR.", "HON", "HON.", "THE"}
+_SUFFIXES = {
+    "JR",
+    "SR",
+    "II",
+    "III",
+    "IV",
+    "MR",
+    "MR.",
+    "MS",
+    "MS.",
+    "DR",
+    "DR.",
+    "HON",
+    "HON.",
+    "THE",
+}
 
 
 def normalize_fec_name(fec_name: str) -> str:
@@ -91,9 +106,7 @@ def build_candidate_index(
     """
     index: dict[tuple[str, str], list[str]] = defaultdict(list)
     records = session.run(
-        "MATCH (c:Candidate) "
-        "RETURN c.fec_candidate_id AS fec_id, c.name AS name, "
-        "c.state AS state"
+        "MATCH (c:Candidate) RETURN c.fec_candidate_id AS fec_id, c.name AS name, c.state AS state"
     )
     for record in records:
         name = record["name"] or ""
@@ -147,7 +160,9 @@ def _build_lastname_index(
     return {k: dict(v) for k, v in result.items()}
 
 
-def _filter_by_party(fec_ids: list[str], party: str | None, id_to_party: dict[str, str]) -> list[str]:
+def _filter_by_party(
+    fec_ids: list[str], party: str | None, id_to_party: dict[str, str]
+) -> list[str]:
     """Return fec_ids whose party matches party (single letter). If party is None
     or no candidates survive the filter, returns the original list unfiltered."""
     if not party:
@@ -193,14 +208,16 @@ def resolve_candidates(
             if len(by_name) == 0:
                 logger.warning(
                     "No candidate match for %r / %s — skipping",
-                    rating.candidate_name, state,
+                    rating.candidate_name,
+                    state,
                 )
                 continue
             elif len(by_name) > 1:
                 # Narrow by first-name prefix, then party if still ambiguous
                 scorecard_first = normalized.rsplit(" ", 1)[0]
                 narrowed = {
-                    name: ids for name, ids in by_name.items()
+                    name: ids
+                    for name, ids in by_name.items()
                     if _first_names_compatible(scorecard_first, name.rsplit(" ", 1)[0])
                 }
                 if len(narrowed) > 1 and rating.party:
@@ -212,20 +229,25 @@ def resolve_candidates(
                 if len(narrowed) == 0:
                     logger.warning(
                         "No candidate match for %r / %s — skipping",
-                        rating.candidate_name, state,
+                        rating.candidate_name,
+                        state,
                     )
                     continue
                 elif len(narrowed) == 1:
                     matches = next(iter(narrowed.values()))
                     logger.debug(
                         "Resolved %r / %s via lastname+prefix fallback (%d candidac%s)",
-                        rating.candidate_name, state,
-                        len(matches), "y" if len(matches) == 1 else "ies",
+                        rating.candidate_name,
+                        state,
+                        len(matches),
+                        "y" if len(matches) == 1 else "ies",
                     )
                 else:
                     logger.warning(
                         "Ambiguous lastname match for %r / %s (%d distinct names) — skipping",
-                        rating.candidate_name, state, len(narrowed),
+                        rating.candidate_name,
+                        state,
+                        len(narrowed),
                     )
                     continue
             else:
@@ -233,13 +255,17 @@ def resolve_candidates(
                 matches = next(iter(by_name.values()))
                 logger.debug(
                     "Resolved %r / %s via lastname fallback (%d candidac%s)",
-                    rating.candidate_name, state,
-                    len(matches), "y" if len(matches) == 1 else "ies",
+                    rating.candidate_name,
+                    state,
+                    len(matches),
+                    "y" if len(matches) == 1 else "ies",
                 )
         elif len(matches) > 1:
             logger.warning(
                 "Ambiguous match for %r / %s (%d FEC IDs) — skipping",
-                rating.candidate_name, state, len(matches),
+                rating.candidate_name,
+                state,
+                len(matches),
             )
             continue
 

@@ -20,30 +20,76 @@ OPENFEC_BASE = "https://api.open.fec.gov/v1"
 
 # FEC bulk file column definitions
 COMMITTEE_MASTER_COLS = [
-    "committee_id", "committee_name", "treasurer_name", "street1", "street2",
-    "city", "state", "zip", "designation", "type", "party", "filing_frequency",
-    "interest_group_category", "connected_org_name", "candidate_id",
+    "committee_id",
+    "committee_name",
+    "treasurer_name",
+    "street1",
+    "street2",
+    "city",
+    "state",
+    "zip",
+    "designation",
+    "type",
+    "party",
+    "filing_frequency",
+    "interest_group_category",
+    "connected_org_name",
+    "candidate_id",
 ]
 
 CANDIDATE_MASTER_COLS = [
-    "candidate_id", "candidate_name", "party", "election_year", "office_state",
-    "office", "office_district", "incumbent_challenger_status", "candidate_status",
-    "principal_committee_id", "street1", "street2", "city", "state", "zip",
+    "candidate_id",
+    "candidate_name",
+    "party",
+    "election_year",
+    "office_state",
+    "office",
+    "office_district",
+    "incumbent_challenger_status",
+    "candidate_status",
+    "principal_committee_id",
+    "street1",
+    "street2",
+    "city",
+    "state",
+    "zip",
 ]
 
 # Contributions from committees to candidates (pas2)
 COMMITTEE_CONTRIB_COLS = [
-    "committee_id", "amendment_indicator", "report_type", "primary_general",
-    "image_number", "transaction_type", "entity_type", "contributor_name",
-    "city", "state", "zip", "employer", "occupation", "transaction_date",
-    "transaction_amount", "other_id", "candidate_id", "transaction_id",
-    "file_number", "memo_code", "memo_text", "sub_id",
+    "committee_id",
+    "amendment_indicator",
+    "report_type",
+    "primary_general",
+    "image_number",
+    "transaction_type",
+    "entity_type",
+    "contributor_name",
+    "city",
+    "state",
+    "zip",
+    "employer",
+    "occupation",
+    "transaction_date",
+    "transaction_amount",
+    "other_id",
+    "candidate_id",
+    "transaction_id",
+    "file_number",
+    "memo_code",
+    "memo_text",
+    "sub_id",
 ]
 
 # Candidate-committee linkage (ccl26.zip extracts to ccl26.txt — glob 'ccl*.txt' matches)
 CANDIDATE_COMMITTEE_LINKAGE_COLS = [
-    "cand_id", "cand_election_yr", "fec_election_yr",
-    "cmte_id", "cmte_tp", "cmte_dsgn", "linkage_id",
+    "cand_id",
+    "cand_election_yr",
+    "fec_election_yr",
+    "cmte_id",
+    "cmte_tp",
+    "cmte_dsgn",
+    "linkage_id",
 ]
 
 

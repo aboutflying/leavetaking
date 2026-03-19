@@ -75,27 +75,33 @@ def _mock_session(records: list[dict]) -> MagicMock:
 
 def test_build_candidate_index_structure():
     """Index maps (normalized_name, state) -> [fec_candidate_id]."""
-    session = _mock_session([
-        {"fec_id": "S6NJ00289", "name": "MENENDEZ, ROBERT", "state": "NJ"},
-    ])
+    session = _mock_session(
+        [
+            {"fec_id": "S6NJ00289", "name": "MENENDEZ, ROBERT", "state": "NJ"},
+        ]
+    )
     result = build_candidate_index(session)
     assert result == {("robert menendez", "NJ"): ["S6NJ00289"]}
 
 
 def test_build_candidate_index_fec_name_normalized():
     """FEC name is normalized via normalize_fec_name (reversed + lowercased)."""
-    session = _mock_session([
-        {"fec_id": "H8CA05036", "name": "PELOSI, NANCY", "state": "CA"},
-    ])
+    session = _mock_session(
+        [
+            {"fec_id": "H8CA05036", "name": "PELOSI, NANCY", "state": "CA"},
+        ]
+    )
     result = build_candidate_index(session)
     assert ("nancy pelosi", "CA") in result
 
 
 def test_build_candidate_index_none_state():
     """Candidate with state=None is coerced to empty string — no crash."""
-    session = _mock_session([
-        {"fec_id": "X123", "name": "SMITH, JOHN", "state": None},
-    ])
+    session = _mock_session(
+        [
+            {"fec_id": "X123", "name": "SMITH, JOHN", "state": None},
+        ]
+    )
     result = build_candidate_index(session)
     assert ("john smith", "") in result
     assert result[("john smith", "")] == ["X123"]
@@ -103,10 +109,12 @@ def test_build_candidate_index_none_state():
 
 def test_build_candidate_index_multiple_candidates_same_key():
     """Two candidates with identical normalized name+state both appear in list."""
-    session = _mock_session([
-        {"fec_id": "X1", "name": "DOE, JANE", "state": "OH"},
-        {"fec_id": "X2", "name": "DOE, JANE", "state": "OH"},
-    ])
+    session = _mock_session(
+        [
+            {"fec_id": "X1", "name": "DOE, JANE", "state": "OH"},
+            {"fec_id": "X2", "name": "DOE, JANE", "state": "OH"},
+        ]
+    )
     result = build_candidate_index(session)
     assert len(result[("jane doe", "OH")]) == 2
 
@@ -168,7 +176,9 @@ def test_resolve_candidates_ambiguous_warns_and_skips(caplog):
         results = list(resolve_candidates([rating], index))
 
     assert results == []
-    assert any("Jane Doe" in msg or "Ambiguous" in msg or "ambiguous" in msg for msg in caplog.messages)
+    assert any(
+        "Jane Doe" in msg or "Ambiguous" in msg or "ambiguous" in msg for msg in caplog.messages
+    )
 
 
 def test_resolve_candidates_state_uppercased_defensively():
@@ -176,8 +186,11 @@ def test_resolve_candidates_state_uppercased_defensively():
     index = {("ted cruz", "TX"): ["S0TX00453"]}
     # Simulate a fetcher that didn't uppercase (defensive test)
     rating = RawRating(
-        org_name="LCV", year=2024, issue="environment",
-        candidate_name="Ted Cruz", state="tx",  # lowercase state
+        org_name="LCV",
+        year=2024,
+        issue="environment",
+        candidate_name="Ted Cruz",
+        state="tx",  # lowercase state
         score=0.0,
     )
     results = list(resolve_candidates([rating], index))

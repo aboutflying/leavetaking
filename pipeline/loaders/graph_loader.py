@@ -136,6 +136,12 @@ def load_committees(session: Session, committees: list[dict]) -> int:
     return _batch_load(session, query, committees)
 
 
+def fetch_corporation_names(session: Session) -> list[str]:
+    """Return all Corporation.name values currently in the graph."""
+    result = session.run("MATCH (c:Corporation) RETURN c.name AS name")
+    return [record["name"] for record in result if record["name"]]
+
+
 def load_pac_edges(session: Session, edges: list[dict]) -> int:
     """Load Corporation-OPERATES_PAC->Committee edges.
 
@@ -199,9 +205,7 @@ def load_candidate_committee_linkage(
         for row in rows_list:
             cand_id = row.get("cand_id", "")
             if cand_id not in known_cand_ids:
-                logger.warning(
-                    "CAND_ID %s in ccl26 has no matching Candidate node", cand_id
-                )
+                logger.warning("CAND_ID %s in ccl26 has no matching Candidate node", cand_id)
 
     query = """
     UNWIND $batch AS row

@@ -18,9 +18,18 @@ def normalize_company_name(name: str) -> str:
     name = name.strip().lower()
     # Remove common corporate suffixes
     suffixes = [
-        r"\binc\.?$", r"\bllc\.?$", r"\bcorp\.?$", r"\bcorporation$",
-        r"\bco\.?$", r"\bcompany$", r"\bltd\.?$", r"\blimited$",
-        r"\bplc$", r"\bgroup$", r"\bholdings?$", r"\benterprise[s]?$",
+        r"\binc\.?$",
+        r"\bllc\.?$",
+        r"\bcorp\.?$",
+        r"\bcorporation$",
+        r"\bco\.?$",
+        r"\bcompany$",
+        r"\bltd\.?$",
+        r"\blimited$",
+        r"\bplc$",
+        r"\bgroup$",
+        r"\bholdings?$",
+        r"\benterprise[s]?$",
     ]
     for suffix in suffixes:
         name = re.sub(suffix, "", name).strip()
@@ -52,30 +61,34 @@ def match_brand_to_corporation(
     for wd in wikidata_results:
         wd_name = wd.get("name", "")
         score = similarity(brand_name, wd_name)
-        candidates.append({
-            "name": wd_name,
-            "source": "wikidata",
-            "qid": wd.get("qid"),
-            "parent_qid": wd.get("parent_qid"),
-            "parent_name": wd.get("parent_name"),
-            "ticker": wd.get("ticker"),
-            "score": score,
-        })
+        candidates.append(
+            {
+                "name": wd_name,
+                "source": "wikidata",
+                "qid": wd.get("qid"),
+                "parent_qid": wd.get("parent_qid"),
+                "parent_name": wd.get("parent_name"),
+                "ticker": wd.get("ticker"),
+                "score": score,
+            }
+        )
 
     # Score OpenCorporates results
     for oc in oc_results:
         oc_name = oc.get("name", "")
         score = similarity(brand_name, oc_name)
-        candidates.append({
-            "name": oc_name,
-            "source": "opencorporates",
-            "oc_id": oc.get("opencorporates_url", "").rsplit("/", 2)[-2:]
-            if oc.get("opencorporates_url")
-            else None,
-            "jurisdiction": oc.get("jurisdiction_code"),
-            "company_number": oc.get("company_number"),
-            "score": score,
-        })
+        candidates.append(
+            {
+                "name": oc_name,
+                "source": "opencorporates",
+                "oc_id": oc.get("opencorporates_url", "").rsplit("/", 2)[-2:]
+                if oc.get("opencorporates_url")
+                else None,
+                "jurisdiction": oc.get("jurisdiction_code"),
+                "company_number": oc.get("company_number"),
+                "score": score,
+            }
+        )
 
     # Return best match above threshold
     candidates.sort(key=lambda c: c["score"], reverse=True)
@@ -83,7 +96,10 @@ def match_brand_to_corporation(
         best = candidates[0]
         logger.info(
             "Matched brand '%s' -> '%s' (source=%s, score=%.2f)",
-            brand_name, best["name"], best["source"], best["score"],
+            brand_name,
+            best["name"],
+            best["source"],
+            best["score"],
         )
         return best
 
@@ -91,21 +107,80 @@ def match_brand_to_corporation(
     return None
 
 
+def _has_connected_org(committee: dict) -> bool:
+    """Return True if the committee has a real connected_org_name.
+
+    FEC data sometimes uses the literal string "NONE" instead of an empty field.
+    """
+    val = committee.get("connected_org_name", "").strip()
+    return bool(val) and val.upper() != "NONE"
+
+
 def filter_corporate_pacs(committees: list[dict]) -> list[dict]:
     """Filter FEC committee records to corporate PACs.
 
     Corporate PACs are identified by:
-    - connected_org_name is non-empty (PAC is connected to a sponsoring organization), OR
+    - connected_org_name is non-empty and not "NONE" (PAC is connected to a
+      sponsoring organization), OR
     - interest_group_category == 'C' (ORG_TP field: Corporation)
 
     Note: designation 'B' (lobbyist PAC) and 'D' (leadership PAC) are NOT reliable
     corporate PAC signals and are intentionally excluded from this filter.
     """
     return [
-        c for c in committees
-        if c.get("connected_org_name", "").strip()
-        or c.get("interest_group_category", "").strip() == "C"
+        c
+        for c in committees
+        if _has_connected_org(c) or c.get("interest_group_category", "").strip() == "C"
     ]
+
+
+def resolve_pac_to_corporation(
+    corporate_pacs: list[dict],
+    corporation_names: list[str],
+    threshold: float = 0.7,
+) -> list[dict]:
+    """Match corporate PACs to Corporation nodes by connected_org_name similarity.
+
+    Args:
+        corporate_pacs: Committee dicts with 'committee_id' and 'connected_org_name'.
+        corporation_names: Corporation.name values already loaded into the graph.
+        threshold: Minimum similarity score to accept a match (0–1).
+
+    Returns:
+        List of dicts with 'corporation_name' and 'committee_id' for each match.
+    """
+    edges = []
+    for pac in corporate_pacs:
+        org_name = pac.get("connected_org_name", "").strip()
+        if not org_name or org_name.upper() == "NONE":
+            continue
+
+        best_name = None
+        best_score = 0.0
+        for corp_name in corporation_names:
+            score = similarity(org_name, corp_name)
+            if score > best_score:
+                best_score = score
+                best_name = corp_name
+
+        if best_score >= threshold and best_name is not None:
+            logger.debug(
+                "Matched PAC '%s' (%s) -> '%s' (score=%.2f)",
+                org_name,
+                pac.get("committee_id"),
+                best_name,
+                best_score,
+            )
+            edges.append({"corporation_name": best_name, "committee_id": pac["committee_id"]})
+        else:
+            logger.debug(
+                "No corporation match for PAC '%s' (%s) — best score=%.2f",
+                org_name,
+                pac.get("committee_id"),
+                best_score,
+            )
+
+    return edges
 
 
 def filter_supported_contributions(rows: Iterator[dict]) -> Iterator[dict]:
@@ -130,10 +205,25 @@ def filter_executive_donations(
     """
     if executive_titles is None:
         executive_titles = {
-            "ceo", "cfo", "coo", "cto", "president", "chairman", "chairwoman",
-            "vice president", "vp", "chief executive", "chief financial",
-            "chief operating", "chief technology", "director", "executive",
-            "managing director", "partner", "founder", "owner",
+            "ceo",
+            "cfo",
+            "coo",
+            "cto",
+            "president",
+            "chairman",
+            "chairwoman",
+            "vice president",
+            "vp",
+            "chief executive",
+            "chief financial",
+            "chief operating",
+            "chief technology",
+            "director",
+            "executive",
+            "managing director",
+            "partner",
+            "founder",
+            "owner",
         }
 
     results = []

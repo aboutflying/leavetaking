@@ -7,7 +7,6 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import pipeline.fetchers.fec as fec_module
 from pipeline.fetchers.fec import (
@@ -38,6 +37,7 @@ def _make_zip_bytes(inner_filename: str, content: str) -> bytes:
 # Test 1: parse_committee_master yields dicts with correct keys
 # ---------------------------------------------------------------------------
 
+
 def test_stream_committee_master_yields_dicts(tmp_path):
     """Generator yields exactly one dict per row with expected keys."""
     rows = [
@@ -59,6 +59,7 @@ def test_stream_committee_master_yields_dicts(tmp_path):
 # Test 2: Short rows (fewer fields than column count) are skipped
 # ---------------------------------------------------------------------------
 
+
 def test_stream_skips_short_rows(tmp_path):
     """Rows with fewer fields than column count are silently skipped."""
     # Only 3 fields — far fewer than len(COMMITTEE_MASTER_COLS) = 15
@@ -74,6 +75,7 @@ def test_stream_skips_short_rows(tmp_path):
 # Test 3: parse_candidate_committee_linkage yields dicts with all 7 keys
 # ---------------------------------------------------------------------------
 
+
 def test_stream_candidate_committee_linkage_yields_dicts(tmp_path):
     """parse_candidate_committee_linkage yields dicts with all 7 ccl26 columns."""
     rows = [
@@ -86,8 +88,13 @@ def test_stream_candidate_committee_linkage_yields_dicts(tmp_path):
 
     assert len(results) == 2
     expected_keys = {
-        "cand_id", "cand_election_yr", "fec_election_yr",
-        "cmte_id", "cmte_tp", "cmte_dsgn", "linkage_id",
+        "cand_id",
+        "cand_election_yr",
+        "fec_election_yr",
+        "cmte_id",
+        "cmte_tp",
+        "cmte_dsgn",
+        "linkage_id",
     }
     for d in results:
         assert set(d.keys()) == expected_keys
@@ -96,6 +103,7 @@ def test_stream_candidate_committee_linkage_yields_dicts(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 4: parse_individual_contributions has been removed
 # ---------------------------------------------------------------------------
+
 
 def test_parse_individual_contributions_removed():
     """parse_individual_contributions must not exist in the fec module."""
@@ -107,6 +115,7 @@ def test_parse_individual_contributions_removed():
 # ---------------------------------------------------------------------------
 # Test 5: Empty file yields nothing without raising an exception
 # ---------------------------------------------------------------------------
+
 
 def test_stream_empty_file_yields_nothing(tmp_path):
     """An empty FEC file produces no records and raises no exception."""
@@ -121,6 +130,7 @@ def test_stream_empty_file_yields_nothing(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 6: Rows with extra columns are truncated to column count
 # ---------------------------------------------------------------------------
+
 
 def test_stream_rows_with_extra_columns_truncated(tmp_path):
     """Rows with more fields than column definition are truncated — no extra keys leak."""
@@ -137,6 +147,7 @@ def test_stream_rows_with_extra_columns_truncated(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 7: download_bulk_file builds correct URL for 'ccl' file type
 # ---------------------------------------------------------------------------
+
 
 def test_download_bulk_file_ccl_constructs_correct_url(tmp_path):
     """download_bulk_file('ccl', 2026) requests the correct FEC URL."""
@@ -161,10 +172,16 @@ def test_download_bulk_file_ccl_constructs_correct_url(tmp_path):
 # Structural checks
 # ---------------------------------------------------------------------------
 
+
 def test_candidate_committee_linkage_cols_has_seven_entries():
     """CANDIDATE_COMMITTEE_LINKAGE_COLS must have exactly 7 entries matching ccl26 schema."""
     assert len(CANDIDATE_COMMITTEE_LINKAGE_COLS) == 7
     assert CANDIDATE_COMMITTEE_LINKAGE_COLS == [
-        "cand_id", "cand_election_yr", "fec_election_yr",
-        "cmte_id", "cmte_tp", "cmte_dsgn", "linkage_id",
+        "cand_id",
+        "cand_election_yr",
+        "fec_election_yr",
+        "cmte_id",
+        "cmte_tp",
+        "cmte_dsgn",
+        "linkage_id",
     ]

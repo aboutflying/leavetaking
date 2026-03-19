@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -30,7 +30,9 @@ def fec_patches():
         patch(f"{_PATCH_BASE}.parse_committee_master", return_value=iter([])) as mock_cm,
         patch(f"{_PATCH_BASE}.parse_candidate_master", return_value=iter([])) as mock_cn,
         patch(f"{_PATCH_BASE}.parse_committee_contributions", return_value=iter([])) as mock_pas2,
-        patch(f"{_PATCH_BASE}.parse_candidate_committee_linkage", return_value=iter([])) as mock_ccl,
+        patch(
+            f"{_PATCH_BASE}.parse_candidate_committee_linkage", return_value=iter([])
+        ) as mock_ccl,
         patch(f"{_PATCH_BASE}.load_candidates") as mock_load_cands,
         patch(f"{_PATCH_BASE}.load_committees") as mock_load_cmtes,
         patch(f"{_PATCH_BASE}.load_committee_contributions") as mock_load_contribs,
@@ -84,16 +86,30 @@ def test_run_fec_applies_transaction_type_filter(fec_patches):
     from pipeline.run_pipeline import run_fec
 
     rows_with_mixed_types = [
-        {"transaction_type": "24K", "transaction_amount": "1000", "committee_id": "C001",
-         "candidate_id": "P001", "transaction_id": "TXN1", "transaction_date": "01012026"},
-        {"transaction_type": "24A", "transaction_amount": "500", "committee_id": "C001",
-         "candidate_id": "P001", "transaction_id": "TXN2", "transaction_date": "01012026"},
+        {
+            "transaction_type": "24K",
+            "transaction_amount": "1000",
+            "committee_id": "C001",
+            "candidate_id": "P001",
+            "transaction_id": "TXN1",
+            "transaction_date": "01012026",
+        },
+        {
+            "transaction_type": "24A",
+            "transaction_amount": "500",
+            "committee_id": "C001",
+            "candidate_id": "P001",
+            "transaction_id": "TXN2",
+            "transaction_date": "01012026",
+        },
     ]
     fec_patches["parse_committee_contributions"].return_value = iter(rows_with_mixed_types)
 
     # Capture what load_committee_contributions actually receives
     loaded_rows = []
-    fec_patches["load_committee_contributions"].side_effect = lambda session, rows: loaded_rows.extend(rows)
+    fec_patches["load_committee_contributions"].side_effect = lambda session, rows: (
+        loaded_rows.extend(rows)
+    )
 
     run_fec(_make_session())
 
@@ -101,9 +117,7 @@ def test_run_fec_applies_transaction_type_filter(fec_patches):
     assert "24A" not in transaction_types, (
         "Opposition expenditure 24A must be filtered out before loading"
     )
-    assert "24K" in transaction_types, (
-        "Direct support 24K must be passed through to loading"
-    )
+    assert "24K" in transaction_types, "Direct support 24K must be passed through to loading"
 
 
 class TestRunBrands:
@@ -158,8 +172,10 @@ class TestRunBrands:
         from pipeline.run_pipeline import run_brands
 
         with (
-            patch(f"{_PATCH_BASE}.resolve_all_brands",
-                  return_value={"Apple": {"name": "Apple Inc.", "qid": "Q312", "ticker": "AAPL"}}),
+            patch(
+                f"{_PATCH_BASE}.resolve_all_brands",
+                return_value={"Apple": {"name": "Apple Inc.", "qid": "Q312", "ticker": "AAPL"}},
+            ),
             patch(f"{_PATCH_BASE}.get_ownership_chain", return_value=[]),
             patch(f"{_PATCH_BASE}.load_brands"),
             patch(f"{_PATCH_BASE}.load_corporations") as mock_load_corps,
@@ -185,8 +201,9 @@ class TestRunBrands:
         from pipeline.run_pipeline import run_brands
 
         with (
-            patch(f"{_PATCH_BASE}.resolve_all_brands",
-                  return_value={"X": {"name": "X Corp"}}),  # no 'qid' key
+            patch(
+                f"{_PATCH_BASE}.resolve_all_brands", return_value={"X": {"name": "X Corp"}}
+            ),  # no 'qid' key
             patch(f"{_PATCH_BASE}.get_ownership_chain") as mock_chain,
             patch(f"{_PATCH_BASE}.load_brands"),
             patch(f"{_PATCH_BASE}.load_corporations"),
@@ -205,13 +222,27 @@ def test_run_fec_passes_known_cand_ids_to_linkage_loader(fec_patches):
     from pipeline.run_pipeline import run_fec
 
     # parse_candidate_master returns a candidate with a known ID
-    fec_patches["parse_candidate_master"].return_value = iter([
-        {"candidate_id": "P00000001", "candidate_name": "Test Candidate",
-         "party": "DEM", "election_year": "2026", "office_state": "CA",
-         "office": "H", "office_district": "01", "incumbent_challenger_status": "I",
-         "candidate_status": "C", "principal_committee_id": "C001",
-         "street1": "", "street2": "", "city": "", "state": "", "zip": ""},
-    ])
+    fec_patches["parse_candidate_master"].return_value = iter(
+        [
+            {
+                "candidate_id": "P00000001",
+                "candidate_name": "Test Candidate",
+                "party": "DEM",
+                "election_year": "2026",
+                "office_state": "CA",
+                "office": "H",
+                "office_district": "01",
+                "incumbent_challenger_status": "I",
+                "candidate_status": "C",
+                "principal_committee_id": "C001",
+                "street1": "",
+                "street2": "",
+                "city": "",
+                "state": "",
+                "zip": "",
+            },
+        ]
+    )
 
     run_fec(_make_session())
 
@@ -222,9 +253,7 @@ def test_run_fec_passes_known_cand_ids_to_linkage_loader(fec_patches):
     assert "known_cand_ids" in call_kwargs, (
         "known_cand_ids kwarg not passed — validation will be skipped"
     )
-    assert call_kwargs["known_cand_ids"] is not None, (
-        "known_cand_ids must be a set, not None"
-    )
+    assert call_kwargs["known_cand_ids"] is not None, "known_cand_ids must be a set, not None"
     assert isinstance(call_kwargs["known_cand_ids"], set), (
         f"known_cand_ids must be a set, got {type(call_kwargs['known_cand_ids'])}"
     )

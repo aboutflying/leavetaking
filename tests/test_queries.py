@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -26,22 +25,28 @@ def mock_scores(tmp_path):
             "TestBrand": {
                 "environment": {
                     "League of Conservation Voters": {
-                        "score": 72.5, "dollars": 50000,
-                        "candidates": 5, "confidence": "high",
+                        "score": 72.5,
+                        "dollars": 50000,
+                        "candidates": 5,
+                        "confidence": "high",
                     }
                 },
                 "labor": {
                     "AFL-CIO": {
-                        "score": 45.0, "dollars": 25000,
-                        "candidates": 3, "confidence": "medium",
+                        "score": 45.0,
+                        "dollars": 25000,
+                        "candidates": 3,
+                        "confidence": "medium",
                     }
                 },
             },
             "AnotherBrand": {
                 "environment": {
                     "League of Conservation Voters": {
-                        "score": 30.0, "dollars": 10000,
-                        "candidates": 2, "confidence": "low",
+                        "score": 30.0,
+                        "dollars": 10000,
+                        "candidates": 2,
+                        "confidence": "low",
                     }
                 },
             },

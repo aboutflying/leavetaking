@@ -81,9 +81,7 @@ def _confidence(total_dollars: float, candidate_count: int) -> str:
     return "low"
 
 
-def compute_brand_scores(
-    session: Session, brand_name: str, cycles: list[int]
-) -> dict:
+def compute_brand_scores(session: Session, brand_name: str, cycles: list[int]) -> dict:
     """Compute per-issue, per-scorecard scores for a single brand.
 
     Returns nested dict: issue → scorecard_org → {score, dollars, candidates, confidence}
@@ -128,9 +126,7 @@ def compute_brand_scores(
     return dict(result)
 
 
-def compute_all_scores(
-    session: Session, cycles: list[int] | None = None
-) -> dict:
+def compute_all_scores(session: Session, cycles: list[int] | None = None) -> dict:
     """Compute scores for all brands in the graph.
 
     Returns dict mapping brand name to compute_brand_scores() output.

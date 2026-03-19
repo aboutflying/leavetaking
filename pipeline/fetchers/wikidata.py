@@ -67,12 +67,15 @@ def get_subsidiaries(corporation_qid: str) -> list[dict]:
     Args:
         corporation_qid: Wikidata entity ID (e.g. 'Q95')
     """
-    sparql = """
+    sparql = (
+        """
     SELECT ?subsidiary ?subsidiaryLabel WHERE {
       ?subsidiary wdt:P749 wd:%s .
       SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
     }
-    """ % corporation_qid
+    """
+        % corporation_qid
+    )
 
     results = query_sparql(sparql)
     return [
@@ -101,12 +104,14 @@ def get_ownership_chain(entity_qid: str, max_depth: int = 10) -> list[dict]:
     results = query_sparql(sparql)
     chain = []
     for r in results:
-        chain.append({
-            "child_qid": _qid_from_uri(r["child"]["value"]),
-            "child_name": r.get("childLabel", {}).get("value", ""),
-            "parent_qid": _qid_from_uri(r["parent"]["value"]),
-            "parent_name": r.get("parentLabel", {}).get("value", ""),
-        })
+        chain.append(
+            {
+                "child_qid": _qid_from_uri(r["child"]["value"]),
+                "child_name": r.get("childLabel", {}).get("value", ""),
+                "parent_qid": _qid_from_uri(r["parent"]["value"]),
+                "parent_name": r.get("parentLabel", {}).get("value", ""),
+            }
+        )
     return chain
 
 

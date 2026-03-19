@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RawRating:
     """A single candidate rating from a scorecard, before FEC ID resolution."""
@@ -37,10 +38,18 @@ class RawRating:
 # ---------------------------------------------------------------------------
 
 GRADE_TO_SCORE: dict[str, float] = {
-    "A+": 100.0, "A": 95.0, "A-": 90.0,
-    "B+": 85.0,  "B": 75.0, "B-": 70.0,
-    "C+": 65.0,  "C": 50.0, "C-": 45.0,
-    "D+": 35.0,  "D": 25.0, "D-": 20.0,
+    "A+": 100.0,
+    "A": 95.0,
+    "A-": 90.0,
+    "B+": 85.0,
+    "B": 75.0,
+    "B-": 70.0,
+    "C+": 65.0,
+    "C": 50.0,
+    "C-": 45.0,
+    "D+": 35.0,
+    "D": 25.0,
+    "D-": 20.0,
     "F": 0.0,
 }
 
@@ -75,6 +84,7 @@ def normalize_score(raw: str | float | int) -> float:
 # ---------------------------------------------------------------------------
 # Fetcher protocol
 # ---------------------------------------------------------------------------
+
 
 class ScorecardFetcher(Protocol):
     """Protocol for per-org scorecard fetchers."""
@@ -120,7 +130,8 @@ class LCVFetcher:
             if score_col not in (reader.fieldnames or []):
                 logger.warning(
                     "LCV CSV for %d missing expected score column '%s' — skipping",
-                    year, score_col,
+                    year,
+                    score_col,
                 )
                 return
 
@@ -158,6 +169,7 @@ class LCVFetcher:
 # ---------------------------------------------------------------------------
 # JsonFileFetcher (generic — for manually-maintained scorecard JSON files)
 # ---------------------------------------------------------------------------
+
 
 class JsonFileFetcher:
     """Reads a manual-download scorecard JSON for one org.
@@ -204,9 +216,7 @@ class JsonFileFetcher:
             state = r.get("state", "").strip().upper()
             candidate_name = r.get("candidate_name", "").strip()
             if not candidate_name or not state:
-                logger.warning(
-                    "Skipping rating missing candidate_name or state: %r", r
-                )
+                logger.warning("Skipping rating missing candidate_name or state: %r", r)
                 continue
 
             raw_val = r.get("score", "")
@@ -217,9 +227,7 @@ class JsonFileFetcher:
             try:
                 score = normalize_score(raw_val)
             except ValueError:
-                logger.warning(
-                    "Skipping unrecognized score %r for %s", raw_val, candidate_name
-                )
+                logger.warning("Skipping unrecognized score %r for %s", raw_val, candidate_name)
                 continue
 
             yield RawRating(
@@ -237,9 +245,7 @@ class JsonFileFetcher:
 # ---------------------------------------------------------------------------
 
 FETCHER_REGISTRY: dict[str, ScorecardFetcher] = {
-    "League of Conservation Voters": LCVFetcher(
-        settings.data_dir / "scorecards"
-    ),
+    "League of Conservation Voters": LCVFetcher(settings.data_dir / "scorecards"),
 }
 
 

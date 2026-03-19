@@ -51,16 +51,56 @@ SEED_PATH = Path("schema/seed_issues.cypher")
 
 # Top Amazon brands for MVP. In production these would be scraped/crawled.
 TOP_BRANDS = [
-    "Amazon Basics", "Apple", "Samsung", "Sony", "LG", "Bose",
-    "Nike", "Adidas", "Under Armour", "Levi's", "Hasbro", "Mattel",
-    "Procter & Gamble", "Unilever", "Johnson & Johnson", "Colgate-Palmolive",
-    "Nestle", "PepsiCo", "Coca-Cola", "General Mills", "Kellogg's",
-    "Kraft Heinz", "Mars", "Mondelez", "Hershey", "Tyson Foods",
-    "3M", "Honeywell", "General Electric", "Whirlpool", "Black & Decker",
-    "Duracell", "Energizer", "Clorox", "SC Johnson", "Church & Dwight",
-    "Estee Lauder", "L'Oreal", "Revlon", "Maybelline",
-    "Microsoft", "Google", "Intel", "AMD", "NVIDIA",
-    "HP", "Dell", "Lenovo", "ASUS", "Acer",
+    "Amazon Basics",
+    "Apple",
+    "Samsung",
+    "Sony",
+    "LG",
+    "Bose",
+    "Nike",
+    "Adidas",
+    "Under Armour",
+    "Levi's",
+    "Hasbro",
+    "Mattel",
+    "Procter & Gamble",
+    "Unilever",
+    "Johnson & Johnson",
+    "Colgate-Palmolive",
+    "Nestle",
+    "PepsiCo",
+    "Coca-Cola",
+    "General Mills",
+    "Kellogg's",
+    "Kraft Heinz",
+    "Mars",
+    "Mondelez",
+    "Hershey",
+    "Tyson Foods",
+    "3M",
+    "Honeywell",
+    "General Electric",
+    "Whirlpool",
+    "Black & Decker",
+    "Duracell",
+    "Energizer",
+    "Clorox",
+    "SC Johnson",
+    "Church & Dwight",
+    "Estee Lauder",
+    "L'Oreal",
+    "Revlon",
+    "Maybelline",
+    "Microsoft",
+    "Google",
+    "Intel",
+    "AMD",
+    "NVIDIA",
+    "HP",
+    "Dell",
+    "Lenovo",
+    "ASUS",
+    "Acer",
 ]
 
 
@@ -95,13 +135,15 @@ def run_brands(session) -> None:
 
     for brand_name, match in resolutions.items():
         corp_name = match["name"]
-        corporations.append({
-            "name": corp_name,
-            "ticker": match.get("ticker"),
-            "cik": None,
-            "jurisdiction": match.get("jurisdiction"),
-            "oc_id": str(match["oc_id"]) if match.get("oc_id") else None,
-        })
+        corporations.append(
+            {
+                "name": corp_name,
+                "ticker": match.get("ticker"),
+                "cik": None,
+                "jurisdiction": match.get("jurisdiction"),
+                "oc_id": str(match["oc_id"]) if match.get("oc_id") else None,
+            }
+        )
         ownership_edges.append({"brand_name": brand_name, "corporation_name": corp_name})
 
         if match.get("qid"):
@@ -110,17 +152,21 @@ def run_brands(session) -> None:
                 for link in chain:
                     if not link.get("parent_name") or not link.get("child_name"):
                         continue  # Wikidata sometimes returns empty labels — skip
-                    corporations.append({
-                        "name": link["parent_name"],
-                        "ticker": None,
-                        "cik": None,
-                        "jurisdiction": None,
-                        "oc_id": None,
-                    })
-                    subsidiary_edges.append({
-                        "child_name": link["child_name"],
-                        "parent_name": link["parent_name"],
-                    })
+                    corporations.append(
+                        {
+                            "name": link["parent_name"],
+                            "ticker": None,
+                            "cik": None,
+                            "jurisdiction": None,
+                            "oc_id": None,
+                        }
+                    )
+                    subsidiary_edges.append(
+                        {
+                            "child_name": link["child_name"],
+                            "parent_name": link["parent_name"],
+                        }
+                    )
             except Exception:
                 logger.exception("Ownership chain failed for %s (%s)", brand_name, match["qid"])
 
@@ -137,7 +183,10 @@ def run_brands(session) -> None:
     load_subsidiary_edges(session, subsidiary_edges)
     logger.info(
         "Loaded %d brands, %d corporations, %d ownership edges, %d subsidiary edges",
-        len(brands), len(unique_corps), len(ownership_edges), len(subsidiary_edges),
+        len(brands),
+        len(unique_corps),
+        len(ownership_edges),
+        len(subsidiary_edges),
     )
 
 
@@ -176,7 +225,8 @@ def run_fec(session) -> None:
         corporate_pacs = filter_corporate_pacs(committees)
         logger.info(
             "Found %d corporate PACs out of %d committees",
-            len(corporate_pacs), len(committees),
+            len(corporate_pacs),
+            len(committees),
         )
 
         # Link corporate PACs to Corporation nodes already in the graph.
@@ -187,12 +237,12 @@ def run_fec(session) -> None:
             load_pac_edges(session, pac_edges)
             logger.info(
                 "Linked %d corporate PACs to corporations (%d unmatched)",
-                len(pac_edges), len(corporate_pacs) - len(pac_edges),
+                len(pac_edges),
+                len(corporate_pacs) - len(pac_edges),
             )
         else:
             logger.warning(
-                "No Corporation nodes found — skipping PAC linkage. "
-                "Run brand resolution first."
+                "No Corporation nodes found — skipping PAC linkage. Run brand resolution first."
             )
 
         # Stream pas2, filter to support-only transaction types (24K, 24Z),
@@ -203,7 +253,9 @@ def run_fec(session) -> None:
         for c in supported_contribs:
             c["cycle"] = cycle
         load_committee_contributions(session, supported_contribs)
-        logger.info("Loaded %d supported contributions for cycle %d", len(supported_contribs), cycle)
+        logger.info(
+            "Loaded %d supported contributions for cycle %d", len(supported_contribs), cycle
+        )
 
         # Load candidate-committee linkage with validation against known candidates
         ccl_rows = parse_candidate_committee_linkage(ccl_path)
