@@ -51,7 +51,7 @@ def load_brands(session: Session, brands: list[dict]) -> int:
     UNWIND $batch AS b
     MERGE (brand:Brand {name: b.name})
     SET brand.amazon_slug = b.amazon_slug,
-        brand.aliases = b.aliases
+        brand.aliases = CASE WHEN b.aliases IS NOT NULL THEN b.aliases ELSE brand.aliases END
     """
     return _batch_load(session, query, brands)
 
@@ -60,7 +60,9 @@ def load_corporations(session: Session, corporations: list[dict]) -> int:
     """Load Corporation nodes.
 
     Args:
-        corporations: List of dicts with keys: name, ticker, cik, jurisdiction, oc_id.
+        corporations: List of dicts with keys: name, ticker, cik, jurisdiction, oc_id,
+            qid (optional Wikidata QID, e.g. "Q312"). qid is only written when truthy
+            and non-empty; existing qid is preserved when the incoming dict lacks one.
     """
     query = """
     UNWIND $batch AS c
@@ -68,7 +70,8 @@ def load_corporations(session: Session, corporations: list[dict]) -> int:
     SET corp.ticker = c.ticker,
         corp.cik = c.cik,
         corp.jurisdiction = c.jurisdiction,
-        corp.oc_id = c.oc_id
+        corp.oc_id = c.oc_id,
+        corp.qid = CASE WHEN c.qid IS NOT NULL AND c.qid <> '' THEN c.qid ELSE corp.qid END
     """
     return _batch_load(session, query, corporations)
 
@@ -82,7 +85,8 @@ def load_ownership_edges(session: Session, edges: list[dict]) -> int:
     query = """
     UNWIND $batch AS e
     MATCH (b:Brand {name: e.brand_name})
-    MATCH (c:Corporation {name: e.corporation_name})
+    MATCH (c:Corporation)
+    WHERE c.name = e.corporation_name OR e.corporation_name IN coalesce(c.aliases, [])
     MERGE (b)-[:OWNED_BY]->(c)
     """
     return _batch_load(session, query, edges)
@@ -96,8 +100,10 @@ def load_subsidiary_edges(session: Session, edges: list[dict]) -> int:
     """
     query = """
     UNWIND $batch AS e
-    MATCH (child:Corporation {name: e.child_name})
-    MATCH (parent:Corporation {name: e.parent_name})
+    MATCH (child:Corporation)
+    WHERE child.name = e.child_name OR e.child_name IN coalesce(child.aliases, [])
+    MATCH (parent:Corporation)
+    WHERE parent.name = e.parent_name OR e.parent_name IN coalesce(parent.aliases, [])
     MERGE (child)-[:SUBSIDIARY_OF]->(parent)
     """
     return _batch_load(session, query, edges)
@@ -251,9 +257,48 @@ def load_committees(session: Session, committees: list[dict]) -> int:
 
 
 def fetch_corporation_names(session: Session) -> list[str]:
-    """Return all Corporation.name values currently in the graph."""
-    result = session.run("MATCH (c:Corporation) RETURN c.name AS name")
-    return [record["name"] for record in result if record["name"]]
+    """Return all Corporation name strings (canonical names + aliases) from the graph.
+
+    Including aliases ensures PAC matching works even when the FEC-recorded
+    connected_org_name matches an alias rather than the canonical node name.
+    Duplicates are removed; empty strings are excluded.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) RETURN c.name AS name, coalesce(c.aliases, []) AS aliases"
+    )
+    seen: set[str] = set()
+    names: list[str] = []
+    for record in result:
+        for n in [record["name"]] + list(record["aliases"]):
+            if n and n not in seen:
+                names.append(n)
+                seen.add(n)
+    return names
+
+
+def fetch_corporate_pacs_from_graph(session: Session) -> list[dict]:
+    """Return corporate PAC Committee nodes already loaded in the graph.
+
+    Equivalent to filter_corporate_pacs() applied to the Neo4j Committee nodes
+    rather than to raw FEC CSV rows. Used by run_pac_linkage to re-run linkage
+    without re-downloading FEC bulk files.
+
+    Returns:
+        List of dicts with keys: committee_id, connected_org_name.
+    """
+    result = session.run("""
+        MATCH (comm:Committee)
+        WHERE (comm.connected_org IS NOT NULL
+               AND comm.connected_org <> ''
+               AND comm.connected_org <> 'NONE')
+           OR comm.org_type = 'C'
+        RETURN comm.fec_committee_id AS committee_id,
+               coalesce(comm.connected_org, '') AS connected_org_name
+    """)
+    return [
+        {"committee_id": r["committee_id"], "connected_org_name": r["connected_org_name"]}
+        for r in result
+    ]
 
 
 def load_pac_edges(session: Session, edges: list[dict]) -> int:
@@ -264,7 +309,8 @@ def load_pac_edges(session: Session, edges: list[dict]) -> int:
     """
     query = """
     UNWIND $batch AS e
-    MATCH (corp:Corporation {name: e.corporation_name})
+    MATCH (corp:Corporation)
+    WHERE corp.name = e.corporation_name OR e.corporation_name IN coalesce(corp.aliases, [])
     MATCH (comm:Committee {fec_committee_id: e.committee_id})
     MERGE (corp)-[:OPERATES_PAC]->(comm)
     """

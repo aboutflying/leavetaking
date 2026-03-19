@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 from pathlib import Path
 
 from pipeline.config import ensure_data_dirs, get_neo4j_driver, settings
@@ -15,9 +16,15 @@ from pipeline.fetchers.fec import (
     parse_committee_master,
 )
 from pipeline.fetchers.scorecards import load_all_scorecards
-from pipeline.fetchers.wikidata import get_ownership_chain
+from pipeline.fetchers.wikidata import (
+    _search_entities,
+    discover_brands_for_corporation,
+    get_ownership_chain,
+    get_subsidiaries,
+)
 from pipeline.loaders.graph_loader import (
     apply_schema,
+    fetch_corporate_pacs_from_graph,
     fetch_corporation_names,
     is_fec_cycle_loaded,
     load_brands,
@@ -40,6 +47,7 @@ from pipeline.processors.entity_resolution import (
     filter_corporate_pacs,
     filter_supported_contributions,
     resolve_pac_to_corporation,
+    similarity,
 )
 from pipeline.processors.score_computation import compute_all_scores, export_scores
 from pipeline.processors.scorecard_resolver import build_candidate_index, resolve_candidates
@@ -119,16 +127,32 @@ def run_schema(session) -> None:
     load_seed_data(session, FORTUNE100_SEED_PATH)
 
 
-def run_brands(session) -> None:
+def run_brands(
+    session,
+    interactive: bool = False,
+    retry_nulls: bool = False,
+    skip_discovery: bool = False,
+) -> None:
     """Step 1: Resolve brand names to corporations and load into the graph.
 
     Must run before run_fec so that Corporation nodes exist for PAC linkage.
     Results are cached to settings.data_dir/brand_resolutions.json — re-runs
     skip already-resolved brands.
+
+    Args:
+        interactive: When True, pause and prompt the user for brands that have
+                     candidates but no confident automatic match. When False
+                     (default), below-threshold brands are silently skipped —
+                     safe for unattended/cron runs.
+        skip_discovery: When True, skip QID enrichment and subsidiary/brand
+                        discovery phases (faster for dev re-runs).
     """
+    from pipeline.processors.brand_resolver import _stdin_prompt
+
     logger.info("=== Brand Resolution Pipeline ===")
     cache_path = settings.data_dir / "brand_resolutions.json"
-    resolutions = resolve_all_brands(TOP_BRANDS, cache_path)
+    prompt_fn = _stdin_prompt if interactive else None
+    resolutions = resolve_all_brands(TOP_BRANDS, cache_path, prompt_fn=prompt_fn, retry_nulls=retry_nulls)
 
     brands = [
         {"name": name, "amazon_slug": name.lower().replace(" ", "-"), "aliases": []}
@@ -196,6 +220,241 @@ def run_brands(session) -> None:
         len(subsidiary_edges),
     )
 
+    if not skip_discovery:
+        logger.info("=== QID Enrichment ===")
+        enrich_corporation_qids(session)
+        logger.info("=== Subsidiary Discovery ===")
+        discover_subsidiaries_for_corpus(session)
+        logger.info("=== Brand Discovery ===")
+        discover_brands_for_corpus(session)
+        logger.info("=== Corporation Deduplication ===")
+        deduplicate_corporations_by_qid(session)
+
+
+def enrich_corporation_qids(session, delay: float = 1.0) -> int:
+    """Backfill Wikidata QIDs for Corporation nodes that lack one.
+
+    Queries wbsearchentities for each corporation name, accepts the first hit
+    with similarity(corp_name, label) >= 0.7. Idempotent: the Neo4j query
+    filters to WHERE c.qid IS NULL so already-enriched corps are skipped.
+    Rate-limited via delay between API calls.
+
+    Returns:
+        Number of corporations successfully enriched with a QID.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) WHERE c.qid IS NULL RETURN c.name AS name"
+    )
+    names = [r["name"] for r in result]
+    enriched = 0
+    for name in names:
+        try:
+            hits = _search_entities(name)
+        except Exception:
+            logger.warning("QID enrichment search failed for '%s'", name)
+            time.sleep(delay)
+            continue
+        for hit in hits:
+            label = hit.get("label", "")
+            if label and similarity(name, label) >= 0.7:
+                load_corporations(session, [{"name": name, "qid": hit["qid"]}])
+                enriched += 1
+                break
+        time.sleep(delay)
+    logger.info("Enriched %d corporation QIDs", enriched)
+    return enriched
+
+
+def discover_subsidiaries_for_corpus(session, delay: float = 1.0) -> int:
+    """Discover subsidiaries for Corporation nodes that have a Wikidata QID.
+
+    Queries Neo4j for all Corporation nodes with a qid, calls get_subsidiaries()
+    for each, and loads the results as new Corporation nodes + SUBSIDIARY_OF edges.
+    Idempotent: Neo4j MERGE prevents duplicate nodes/edges on re-runs.
+    Rate-limited via delay between API calls.
+
+    Returns:
+        Total number of subsidiary Corporation nodes loaded.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) WHERE c.qid IS NOT NULL RETURN c.name AS name, c.qid AS qid"
+    )
+    corps = [(r["name"], r["qid"]) for r in result if r["qid"]]
+    total = 0
+    for corp_name, qid in corps:
+        try:
+            subs = get_subsidiaries(qid)
+        except Exception:
+            logger.exception("get_subsidiaries failed for %s (%s)", corp_name, qid)
+            time.sleep(delay)
+            continue
+        new_corps = []
+        new_edges = []
+        for s in subs:
+            if not s.get("name"):
+                continue
+            new_corps.append(
+                {
+                    "name": s["name"],
+                    "ticker": None,
+                    "cik": None,
+                    "jurisdiction": None,
+                    "oc_id": None,
+                }
+            )
+            new_edges.append({"child_name": s["name"], "parent_name": corp_name})
+        if new_corps:
+            load_corporations(session, new_corps)
+            load_subsidiary_edges(session, new_edges)
+            total += len(new_corps)
+        time.sleep(delay)
+    logger.info("Discovered %d subsidiaries across %d corporations", total, len(corps))
+    return total
+
+
+def discover_brands_for_corpus(session, delay: float = 1.0) -> int:
+    """Discover consumer brands owned by Corporation nodes that have a Wikidata QID.
+
+    Uses reverse P749 (parent organization) filtered to non-Q4830453 entities.
+    The FILTER NOT EXISTS { P31/P279* Q4830453 } pattern can be slow on Wikidata
+    for large corporations — expect this phase to run 2-5 minutes for a full corpus.
+
+    Returns:
+        Total number of Brand nodes loaded.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) WHERE c.qid IS NOT NULL RETURN c.name AS name, c.qid AS qid"
+    )
+    corps = [(r["name"], r["qid"]) for r in result if r["qid"]]
+    total = 0
+    for corp_name, qid in corps:
+        try:
+            brands = discover_brands_for_corporation(qid)
+        except Exception:
+            logger.exception(
+                "discover_brands_for_corporation failed for %s (%s)", corp_name, qid
+            )
+            time.sleep(delay)
+            continue
+        new_brands = []
+        new_edges = []
+        for b in brands:
+            if not b.get("name"):
+                continue
+            new_brands.append(
+                {
+                    "name": b["name"],
+                    "amazon_slug": b["name"].lower().replace(" ", "-"),
+                    "aliases": None,  # preserve any existing aliases via CASE guard in load_brands
+                }
+            )
+            new_edges.append({"brand_name": b["name"], "corporation_name": corp_name})
+        if new_brands:
+            load_brands(session, new_brands)
+            load_ownership_edges(session, new_edges)
+            total += len(new_brands)
+        time.sleep(delay)
+    logger.info("Discovered %d brands across %d corporations", total, len(corps))
+    return total
+
+
+def deduplicate_corporations_by_qid(session) -> int:
+    """Merge Corporation nodes that share the same Wikidata QID.
+
+    Picks the node with the most relationships as canonical (ties broken by
+    name ascending). Stores all duplicate names — and their existing aliases —
+    in canonical.aliases. Re-homes OWNED_BY, SUBSIDIARY_OF (both directions),
+    and OPERATES_PAC edges from each duplicate to canonical, then DETACH DELETEs
+    the duplicate.
+
+    Idempotent: returns 0 when no duplicates exist.
+
+    Returns:
+        Number of duplicate Corporation nodes removed.
+    """
+    groups_result = session.run("""
+        MATCH (c:Corporation)
+        WHERE c.qid IS NOT NULL
+        WITH c.qid AS qid, collect(c.name) AS names
+        WHERE size(names) > 1
+        RETURN qid, names
+    """)
+    groups = [(r["qid"], r["names"]) for r in groups_result]
+
+    total_removed = 0
+    for qid, _ in groups:
+        ranked = list(session.run("""
+            MATCH (c:Corporation {qid: $qid})
+            RETURN c.name AS name,
+                   coalesce(c.aliases, []) AS aliases,
+                   size([(c)-[]-() | 1]) AS rel_count
+            ORDER BY rel_count DESC, c.name ASC
+        """, qid=qid))
+
+        if len(ranked) < 2:
+            continue
+
+        canonical_name = ranked[0]["name"]
+        for dup in ranked[1:]:
+            dup_name = dup["name"]
+            dup_aliases = dup["aliases"]
+
+            # Re-home OWNED_BY (Brand → dup → canonical)
+            session.run("""
+                MATCH (b:Brand)-[:OWNED_BY]->(dup:Corporation {name: $dup_name})
+                MATCH (canonical:Corporation {name: $canonical_name})
+                MERGE (b)-[:OWNED_BY]->(canonical)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Re-home SUBSIDIARY_OF where dup is child
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})-[:SUBSIDIARY_OF]->(parent:Corporation)
+                MATCH (canonical:Corporation {name: $canonical_name})
+                WHERE canonical <> parent
+                MERGE (canonical)-[:SUBSIDIARY_OF]->(parent)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Re-home SUBSIDIARY_OF where dup is parent
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})<-[:SUBSIDIARY_OF]-(child:Corporation)
+                MATCH (canonical:Corporation {name: $canonical_name})
+                WHERE canonical <> child
+                MERGE (child)-[:SUBSIDIARY_OF]->(canonical)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Re-home OPERATES_PAC
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})-[:OPERATES_PAC]->(cmte:Committee)
+                MATCH (canonical:Corporation {name: $canonical_name})
+                MERGE (canonical)-[:OPERATES_PAC]->(cmte)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Accumulate dup name + dup aliases onto canonical (skip canonical.name itself)
+            new_aliases = [dup_name] + dup_aliases
+            session.run("""
+                MATCH (canonical:Corporation {name: $canonical_name})
+                SET canonical.aliases = reduce(
+                    acc = coalesce(canonical.aliases, []),
+                    x IN $new_aliases |
+                    CASE WHEN x IN acc OR x = canonical.name THEN acc ELSE acc + [x] END
+                )
+            """, canonical_name=canonical_name, new_aliases=new_aliases)
+
+            # Delete duplicate
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})
+                DETACH DELETE dup
+            """, dup_name=dup_name)
+
+            logger.info(
+                "Merged duplicate Corporation '%s' -> '%s' (QID: %s)",
+                dup_name, canonical_name, qid,
+            )
+            total_removed += 1
+
+    logger.info("Deduplicated %d Corporation nodes by QID", total_removed)
+    return total_removed
+
 
 def run_fec(session, force: bool = False) -> None:
     """Step 1: Fetch and load FEC Tier 1 bulk data.
@@ -252,22 +511,6 @@ def run_fec(session, force: bool = False) -> None:
             len(committees),
         )
 
-        # Link corporate PACs to Corporation nodes already in the graph.
-        # Requires brand resolution to have run first (which loads Corporation nodes).
-        corp_names = fetch_corporation_names(session)
-        if corp_names:
-            pac_edges = resolve_pac_to_corporation(corporate_pacs, corp_names)
-            load_pac_edges(session, pac_edges)
-            logger.info(
-                "Linked %d corporate PACs to corporations (%d unmatched)",
-                len(pac_edges),
-                len(corporate_pacs) - len(pac_edges),
-            )
-        else:
-            logger.warning(
-                "No Corporation nodes found — skipping PAC linkage. Run brand resolution first."
-            )
-
         # Stream pas2, filter to support-only transaction types (24K, 24Z),
         # materialize, tag with cycle, then load.
         supported_contribs = list(
@@ -286,6 +529,39 @@ def run_fec(session, force: bool = False) -> None:
 
         mark_fec_cycle_loaded(session, cycle)
         logger.info("Cycle %d load complete", cycle)
+
+
+def run_pac_linkage(session) -> None:
+    """Step 2b: Link corporate PACs to Corporation nodes.
+
+    Reads Committee nodes already in the graph (loaded by run_fec), matches
+    their connected_org name against Corporation names and aliases, and writes
+    OPERATES_PAC edges. Runs in seconds — no network calls, no file downloads.
+
+    Decoupled from run_fec so it can be re-run independently after brand
+    resolution adds or renames Corporation nodes without re-downloading FEC data.
+
+    Requires run_fec to have run first (Committee nodes must exist).
+    Requires run_brands to have run first (Corporation nodes must exist).
+    """
+    logger.info("=== PAC Linkage Pipeline ===")
+    corporate_pacs = fetch_corporate_pacs_from_graph(session)
+    logger.info("Found %d corporate PAC committees in graph", len(corporate_pacs))
+
+    corp_names = fetch_corporation_names(session)
+    if not corp_names:
+        logger.warning(
+            "No Corporation nodes found — skipping PAC linkage. Run brand resolution first."
+        )
+        return
+
+    pac_edges = resolve_pac_to_corporation(corporate_pacs, corp_names)
+    load_pac_edges(session, pac_edges)
+    logger.info(
+        "Linked %d corporate PACs to corporations (%d unmatched)",
+        len(pac_edges),
+        len(corporate_pacs) - len(pac_edges),
+    )
 
 
 def run_scorecards(session) -> None:
@@ -323,7 +599,7 @@ def main():
     parser.add_argument(
         "--steps",
         nargs="+",
-        choices=["schema", "brands", "fec", "scorecards", "scores", "all"],
+        choices=["schema", "brands", "fec", "pac_linkage", "scorecards", "scores", "all"],
         default=["all"],
         help="Pipeline steps to run",
     )
@@ -331,6 +607,21 @@ def main():
         "--force",
         action="store_true",
         help="Re-load FEC cycles even if they are already marked as loaded in the graph",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Pause and prompt for manual brand matching when no confident match is found",
+    )
+    parser.add_argument(
+        "--retry-nulls",
+        action="store_true",
+        help="Re-resolve brands previously cached as null (no match found)",
+    )
+    parser.add_argument(
+        "--skip-discovery",
+        action="store_true",
+        help="Skip QID enrichment and subsidiary/brand discovery phases (faster for dev re-runs)",
     )
     args = parser.parse_args()
 
@@ -345,9 +636,16 @@ def main():
             if run_all or "schema" in steps:
                 run_schema(session)
             if run_all or "brands" in steps:
-                run_brands(session)
+                run_brands(
+                    session,
+                    interactive=args.interactive,
+                    retry_nulls=args.retry_nulls,
+                    skip_discovery=args.skip_discovery,
+                )
             if run_all or "fec" in steps:
                 run_fec(session, force=args.force)
+            if run_all or "pac_linkage" in steps:
+                run_pac_linkage(session)
             if run_all or "scorecards" in steps:
                 run_scorecards(session)
             if run_all or "scores" in steps:

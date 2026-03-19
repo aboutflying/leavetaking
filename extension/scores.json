@@ -1,8 +1,1659 @@
 {
   "meta": {
     "version": "0.2",
-    "generated_at": "2026-03-19T02:37:16.581805+00:00",
-    "brand_count": 0
+    "generated_at": "2026-03-19T20:33:50.857276+00:00",
+    "brand_count": 165
   },
-  "brands": {}
+  "brands": {
+    "Johnson & Johnson": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.0,
+          "dollars": 872500.0,
+          "candidates": 149,
+          "confidence": "high"
+        }
+      }
+    },
+    "Nike": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 60.3,
+          "dollars": 680335.0,
+          "candidates": 130,
+          "confidence": "high"
+        }
+      }
+    },
+    "Procter & Gamble": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.5,
+          "dollars": 507000.0,
+          "candidates": 114,
+          "confidence": "high"
+        }
+      }
+    },
+    "PepsiCo": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 49.0,
+          "dollars": 169227.0,
+          "candidates": 55,
+          "confidence": "high"
+        }
+      }
+    },
+    "Coca-Cola": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.8,
+          "dollars": 149650.0,
+          "candidates": 35,
+          "confidence": "high"
+        }
+      }
+    },
+    "General Mills": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.4,
+          "dollars": 3067500.0,
+          "candidates": 292,
+          "confidence": "high"
+        }
+      }
+    },
+    "Kellogg's": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.1,
+          "dollars": 167889.0,
+          "candidates": 19,
+          "confidence": "high"
+        }
+      }
+    },
+    "Kraft Heinz": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.1,
+          "dollars": 311000.0,
+          "candidates": 72,
+          "confidence": "high"
+        }
+      }
+    },
+    "Mars": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 87.8,
+          "dollars": 28300.0,
+          "candidates": 5,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Mondelez": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "Hershey": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 44.4,
+          "dollars": 42641.0,
+          "candidates": 20,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Tyson Foods": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 29.1,
+          "dollars": 436500.0,
+          "candidates": 136,
+          "confidence": "high"
+        }
+      }
+    },
+    "3M": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 61.1,
+          "dollars": 55000.0,
+          "candidates": 25,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Honeywell": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 3120850.0,
+          "candidates": 283,
+          "confidence": "high"
+        }
+      }
+    },
+    "General Electric": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "Duracell": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.1,
+          "dollars": 311000.0,
+          "candidates": 72,
+          "confidence": "high"
+        }
+      }
+    },
+    "Energizer": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 35.3,
+          "dollars": 736150.0,
+          "candidates": 162,
+          "confidence": "high"
+        }
+      }
+    },
+    "Clorox": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 94.0,
+          "dollars": -2000.0,
+          "candidates": 1,
+          "confidence": "low"
+        }
+      }
+    },
+    "SC Johnson": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 36.7,
+          "dollars": 88000.0,
+          "candidates": 29,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Estee Lauder": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 40.7,
+          "dollars": 258000.0,
+          "candidates": 58,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Intel": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.8,
+          "dollars": 813000.0,
+          "candidates": 163,
+          "confidence": "high"
+        }
+      }
+    },
+    "HP": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 52.1,
+          "dollars": 612000.0,
+          "candidates": 88,
+          "confidence": "high"
+        }
+      }
+    },
+    "Dell": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 48.8,
+          "dollars": 6387650.0,
+          "candidates": 395,
+          "confidence": "high"
+        }
+      }
+    },
+    "Hershey Canada Inc.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 44.4,
+          "dollars": 42641.0,
+          "candidates": 20,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Q2981200": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.8,
+          "dollars": 149650.0,
+          "candidates": 35,
+          "confidence": "high"
+        }
+      }
+    },
+    "NBC LX Home": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 49.7,
+          "dollars": 3229900.0,
+          "candidates": 340,
+          "confidence": "high"
+        }
+      }
+    },
+    "Le Labo": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 40.7,
+          "dollars": 258000.0,
+          "candidates": 58,
+          "confidence": "high"
+        }
+      }
+    },
+    "Tom Ford": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 40.7,
+          "dollars": 258000.0,
+          "candidates": 58,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lef\u00e8vre-Utile": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "C\u00f4te d'Or": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "Cadbury France": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "Alpen Gold": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "Cadbury Nigeria Plc": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "Mondelez France SAS": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "Honey Maid": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 51.6,
+          "dollars": 971400.0,
+          "candidates": 135,
+          "confidence": "high"
+        }
+      }
+    },
+    "Ruler Foods": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 40.4,
+          "dollars": 277000.0,
+          "candidates": 113,
+          "confidence": "high"
+        }
+      }
+    },
+    "ExxonMobil Pipeline Company": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 26.3,
+          "dollars": 956250.0,
+          "candidates": 173,
+          "confidence": "high"
+        }
+      }
+    },
+    "3M Health Care": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 61.1,
+          "dollars": 55000.0,
+          "candidates": 25,
+          "confidence": "medium"
+        }
+      }
+    },
+    "3M Mincom": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 61.1,
+          "dollars": 55000.0,
+          "candidates": 25,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Goldman Sachs International": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.6,
+          "dollars": 928300.0,
+          "candidates": 210,
+          "confidence": "high"
+        }
+      }
+    },
+    "Goldman Sachs International Paris Branch": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.6,
+          "dollars": 928300.0,
+          "candidates": 210,
+          "confidence": "high"
+        }
+      }
+    },
+    "SIGMA X2": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.6,
+          "dollars": 928300.0,
+          "candidates": 210,
+          "confidence": "high"
+        }
+      }
+    },
+    "BK Japan holdings": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.6,
+          "dollars": 928300.0,
+          "candidates": 210,
+          "confidence": "high"
+        }
+      }
+    },
+    "ChapStick product line": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.3,
+          "dollars": 1158500.0,
+          "candidates": 220,
+          "confidence": "high"
+        }
+      }
+    },
+    "Pfizer en Suisse": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.3,
+          "dollars": 1158500.0,
+          "candidates": 220,
+          "confidence": "high"
+        }
+      }
+    },
+    "Charmin": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.5,
+          "dollars": 507000.0,
+          "candidates": 114,
+          "confidence": "high"
+        }
+      }
+    },
+    "Safeguard": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.5,
+          "dollars": 507000.0,
+          "candidates": 114,
+          "confidence": "high"
+        }
+      }
+    },
+    "New Chapter": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.5,
+          "dollars": 507000.0,
+          "candidates": 114,
+          "confidence": "high"
+        }
+      }
+    },
+    "Scott Fetzer Company": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.1,
+          "dollars": 311000.0,
+          "candidates": 72,
+          "confidence": "high"
+        }
+      }
+    },
+    "Citibank Berhad": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 44.0,
+          "dollars": 781500.0,
+          "candidates": 156,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q136745432": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 44.0,
+          "dollars": 781500.0,
+          "candidates": 156,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft Research": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft Press": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft Kids": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "DATAllegro": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Jellyfish.com": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "MSN Internet Access": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "ScreenTonic": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft Egypt": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "MileIQ": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft (France)": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft Saudi": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft Global Finance": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "LinkedIn Ireland": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft Switzerland": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Clipchamp Pty Ltd": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q117536672": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Microsoft AI": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.8,
+          "dollars": 1290000.0,
+          "candidates": 238,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q62113381": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 35.7,
+          "dollars": 68000.0,
+          "candidates": 37,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Tonga": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.8,
+          "dollars": 813000.0,
+          "candidates": 163,
+          "confidence": "high"
+        }
+      }
+    },
+    "Intel Research Labs": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.8,
+          "dollars": 813000.0,
+          "candidates": 163,
+          "confidence": "high"
+        }
+      }
+    },
+    "Habana Labs": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.8,
+          "dollars": 813000.0,
+          "candidates": 163,
+          "confidence": "high"
+        }
+      }
+    },
+    "Intel Open Source Technology Center": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.8,
+          "dollars": 813000.0,
+          "candidates": 163,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q127869159": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.8,
+          "dollars": 813000.0,
+          "candidates": 163,
+          "confidence": "high"
+        }
+      }
+    },
+    "Squibb Institute for Medical Research": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.5,
+          "dollars": 602500.0,
+          "candidates": 121,
+          "confidence": "high"
+        }
+      }
+    },
+    "Dell Boomi": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 48.0,
+          "dollars": 6265650.0,
+          "candidates": 370,
+          "confidence": "high"
+        }
+      }
+    },
+    "SportsNet New York": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.3,
+          "dollars": 2479000.0,
+          "candidates": 266,
+          "confidence": "high"
+        }
+      }
+    },
+    "Insight Communications Inc.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.3,
+          "dollars": 2479000.0,
+          "candidates": 266,
+          "confidence": "high"
+        }
+      }
+    },
+    "Partnership Initiatives in the Niger Delta": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 12.3,
+          "dollars": 1418500.0,
+          "candidates": 208,
+          "confidence": "high"
+        }
+      }
+    },
+    "Energy Brands": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.8,
+          "dollars": 149650.0,
+          "candidates": 35,
+          "confidence": "high"
+        }
+      }
+    },
+    "Pepsi-Cola Venezuela": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 49.0,
+          "dollars": 169227.0,
+          "candidates": 55,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lianozovsky dairy combine": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 49.0,
+          "dollars": 169227.0,
+          "candidates": 55,
+          "confidence": "high"
+        }
+      }
+    },
+    "Pepsi": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 49.0,
+          "dollars": 169227.0,
+          "candidates": 55,
+          "confidence": "high"
+        }
+      }
+    },
+    "AT&T Communications, LLC": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.8,
+          "dollars": 3801900.0,
+          "candidates": 401,
+          "confidence": "high"
+        }
+      }
+    },
+    "DIMACS": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.8,
+          "dollars": 3801900.0,
+          "candidates": 401,
+          "confidence": "high"
+        }
+      }
+    },
+    "DirecTV Colombia": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.8,
+          "dollars": 3801900.0,
+          "candidates": 401,
+          "confidence": "high"
+        }
+      }
+    },
+    "AT&T Latin American": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.8,
+          "dollars": 3801900.0,
+          "candidates": 401,
+          "confidence": "high"
+        }
+      }
+    },
+    "AT&T Foundation": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.8,
+          "dollars": 3801900.0,
+          "candidates": 401,
+          "confidence": "high"
+        }
+      }
+    },
+    "AT&T Communications Inc.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 47.8,
+          "dollars": 3801900.0,
+          "candidates": 401,
+          "confidence": "high"
+        }
+      }
+    },
+    "AVCREC": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Amazon Prime Video": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Amazon Publishing": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "CreateSpace.com": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Annapurna Labs": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Q28129037": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Camelcamelcamel": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "IMDb.com, Inc.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Amazon Logistics": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Lake Union Publishing": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Merch by Amazon": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Amazon Clinic": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Amazon.in": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Goodreads, Inc.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Thomas & Mercer": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 66.0,
+          "dollars": 80000.0,
+          "candidates": 9,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Wixom Assembly Plant": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.4,
+          "dollars": 543000.0,
+          "candidates": 116,
+          "confidence": "high"
+        }
+      }
+    },
+    "Spin": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.4,
+          "dollars": 543000.0,
+          "candidates": 116,
+          "confidence": "high"
+        }
+      }
+    },
+    "TechCrunch": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.3,
+          "dollars": 58050.0,
+          "candidates": 40,
+          "confidence": "medium"
+        }
+      }
+    },
+    "MCI Inc.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.3,
+          "dollars": 58050.0,
+          "candidates": 40,
+          "confidence": "medium"
+        }
+      }
+    },
+    "Verizon Virginia": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.3,
+          "dollars": 58050.0,
+          "candidates": 40,
+          "confidence": "medium"
+        }
+      }
+    },
+    "John Deere company archives Mannheim": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 31.2,
+          "dollars": 959900.0,
+          "candidates": 108,
+          "confidence": "high"
+        }
+      }
+    },
+    "Circle Health Group": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.9,
+          "dollars": 640000.0,
+          "candidates": 150,
+          "confidence": "high"
+        }
+      }
+    },
+    "Envolve Health": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.9,
+          "dollars": 640000.0,
+          "candidates": 150,
+          "confidence": "high"
+        }
+      }
+    },
+    "Insignia": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 52.8,
+          "dollars": 227500.0,
+          "candidates": 88,
+          "confidence": "high"
+        }
+      }
+    },
+    "Marconi Wireless Telegraph Company of America": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "GE Grid Solutions": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "Hotpoint": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "GE Global Research": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "General Electric Research Laboratory": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "GE Power": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "My Money Bank (France)": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 57.2,
+          "dollars": 690000.0,
+          "candidates": 155,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q132066554": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 43.4,
+          "dollars": 3067500.0,
+          "candidates": 292,
+          "confidence": "high"
+        }
+      }
+    },
+    "Boeing Canada": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.4,
+          "dollars": 2426000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q890212": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.4,
+          "dollars": 2426000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Alteon Training": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.4,
+          "dollars": 2426000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Boeing NeXt": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.4,
+          "dollars": 2426000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Millennium Space Systems": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.4,
+          "dollars": 2426000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q130098149": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 41.4,
+          "dollars": 2426000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lockheed Martin Aeronautics": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.3,
+          "dollars": 2509500.0,
+          "candidates": 342,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lockheed Martin Space": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.3,
+          "dollars": 2509500.0,
+          "candidates": 342,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lockheed Martin Global Training and Logistics": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.3,
+          "dollars": 2509500.0,
+          "candidates": 342,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lockheed Martin UK": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.3,
+          "dollars": 2509500.0,
+          "candidates": 342,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lockheed Martin Missiles and Space": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.3,
+          "dollars": 2509500.0,
+          "candidates": 342,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lockheed Martin Information Systems & Global Solutions": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.3,
+          "dollars": 2509500.0,
+          "candidates": 342,
+          "confidence": "high"
+        }
+      }
+    },
+    "Lockheed Martin (Australia)": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.3,
+          "dollars": 2509500.0,
+          "candidates": 342,
+          "confidence": "high"
+        }
+      }
+    },
+    "Wells Fargo Securities, LLC - Cash Equities": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.7,
+          "dollars": 1200500.0,
+          "candidates": 193,
+          "confidence": "high"
+        }
+      }
+    },
+    "Wells Fargo Private Bank": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 46.7,
+          "dollars": 1200500.0,
+          "candidates": 193,
+          "confidence": "high"
+        }
+      }
+    },
+    "ProCurve": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 52.1,
+          "dollars": 612000.0,
+          "candidates": 88,
+          "confidence": "high"
+        }
+      }
+    },
+    "General Motors Research Laboratories": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.6,
+          "dollars": 5098000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Q11506567": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.6,
+          "dollars": 5098000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Maven": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.6,
+          "dollars": 5098000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Cruise": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.6,
+          "dollars": 5098000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "General Motors Assembly Division": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.6,
+          "dollars": 5098000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Chevrolet": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.6,
+          "dollars": 5098000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Pontiac": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.6,
+          "dollars": 5098000.0,
+          "candidates": 299,
+          "confidence": "high"
+        }
+      }
+    },
+    "Rxbar": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 54.1,
+          "dollars": 167889.0,
+          "candidates": 19,
+          "confidence": "high"
+        }
+      }
+    },
+    "United p.s.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 52.9,
+          "dollars": 1013499.0,
+          "candidates": 182,
+          "confidence": "high"
+        }
+      }
+    },
+    "Raytheon Intelligence & Space": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 50.4,
+          "dollars": 2275000.0,
+          "candidates": 267,
+          "confidence": "high"
+        }
+      }
+    },
+    "Blogger": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google Ads": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "FeedBurner": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google.org": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Bump": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "WIMM One": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google Research": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google (Switzerland)": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Actions on Google": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google AI": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google Travel": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google Open Source": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google France": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google Registry": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Google Quantum AI": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    },
+    "Picnik, Inc.": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 53.6,
+          "dollars": 1238000.0,
+          "candidates": 271,
+          "confidence": "high"
+        }
+      }
+    }
+  }
 }

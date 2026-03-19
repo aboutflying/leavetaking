@@ -7,8 +7,10 @@ from unittest.mock import MagicMock
 
 
 from pipeline.loaders.graph_loader import (
+    load_brands,
     load_candidate_committee_linkage,
     load_committee_contributions,
+    load_corporations,
 )
 
 
@@ -104,3 +106,179 @@ def test_load_committee_contributions_sets_amount_on_merge():
     assert "SET" in query_called, (
         "Expected SET clause so amendments overwrite — MERGE without SET leaves stale values"
     )
+
+
+# ---------------------------------------------------------------------------
+# load_corporations — qid storage tests
+# ---------------------------------------------------------------------------
+
+
+def test_load_corporations_stores_qid_when_present():
+    """Cypher includes corp.qid so the Wikidata QID is written to the node.
+
+    Bug caught: qid silently dropped from match dict — Corporation node never
+    gets a qid property, blocking all downstream P355 discovery.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp", "qid": "Q123"}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "corp.qid" in query_called, (
+        "Cypher must reference corp.qid — qid is being silently dropped from load_corporations"
+    )
+    batch_called = session.run.call_args_list[0][1]["batch"]
+    assert batch_called[0].get("qid") == "Q123", (
+        "qid value must be passed through in the batch parameter"
+    )
+
+
+def test_load_corporations_cypher_uses_null_safe_case_for_qid():
+    """Cypher uses CASE WHEN c.qid IS NOT NULL guard, not unconditional SET.
+
+    Bug caught: SET corp.qid = c.qid unconditionally overwrites existing qid
+    with NULL when re-running pipeline with a dict that lacks qid.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp"}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "c.qid IS NOT NULL" in query_called, (
+        "Cypher must guard qid assignment with IS NOT NULL to prevent writing NULL on re-runs"
+    )
+
+
+def test_load_corporations_skips_qid_when_none():
+    """Cypher IS NOT NULL guard prevents writing explicit None qid to the node.
+
+    Bug caught: qid=None in input dict writes NULL to the node, which breaks
+    future 'WHERE c.qid IS NOT NULL' discovery queries.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp", "qid": None}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "c.qid IS NOT NULL" in query_called, (
+        "CASE guard must be present so qid=None in input dict does not write NULL to graph"
+    )
+
+
+def test_load_corporations_preserves_existing_qid_when_new_dict_has_none():
+    """Cypher CASE includes ELSE corp.qid so existing node qid is preserved.
+
+    Bug caught: without ELSE corp.qid, a re-run with a dict that has no qid
+    silently wipes the previously stored QID from the Corporation node.
+    This breaks the P355 discovery pipeline on every subsequent run.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp"}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "ELSE corp.qid" in query_called, (
+        "CASE must end with ELSE corp.qid to preserve existing qid when incoming dict has none"
+    )
+
+
+# ---------------------------------------------------------------------------
+# load_brands — aliases CASE guard tests
+# ---------------------------------------------------------------------------
+
+
+def test_load_brands_writes_aliases_when_provided():
+    """load_brands stores aliases when the incoming dict provides them.
+
+    Bug caught: CASE guard must not block aliases from being written when
+    caller explicitly passes a non-None list (e.g. ["alias1"]).
+    """
+    session = _make_session()
+
+    load_brands(session, [{"name": "Nike", "amazon_slug": "nike", "aliases": ["Nike Inc."]}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "b.aliases IS NOT NULL" in query_called, (
+        "CASE guard must check b.aliases IS NOT NULL so provided aliases are written"
+    )
+
+
+def test_load_brands_preserves_existing_aliases_when_none_passed():
+    """load_brands does not overwrite existing aliases when incoming dict passes None.
+
+    Bug caught: without CASE guard, `SET brand.aliases = b.aliases` overwrites
+    existing aliases with None/[] on every re-run, destroying manually set alias data.
+    The guard ensures: if b.aliases IS NULL, keep brand.aliases (existing value).
+    """
+    session = _make_session()
+
+    load_brands(session, [{"name": "Nike", "amazon_slug": "nike", "aliases": None}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "ELSE brand.aliases" in query_called, (
+        "CASE must end with ELSE brand.aliases to preserve existing aliases "
+        "when incoming dict passes None"
+    )
+
+
+# ---------------------------------------------------------------------------
+# fetch_corporation_names — includes aliases
+# ---------------------------------------------------------------------------
+
+from pipeline.loaders.graph_loader import fetch_corporation_names, fetch_corporate_pacs_from_graph  # noqa: E402
+
+
+def test_fetch_corporation_names_includes_aliases():
+    """fetch_corporation_names returns canonical names AND aliases.
+
+    Bug caught: only canonical names returned — PAC matching misses cases
+    where FEC connected_org_name matches an alias (e.g. 'Alphabet' when
+    canonical is 'Alphabet Inc.').
+    """
+    session = _make_session()
+    session.run.return_value = [
+        {"name": "Alphabet Inc.", "aliases": ["Alphabet", "Google Parent"]},
+    ]
+
+    names = fetch_corporation_names(session)
+
+    assert "Alphabet Inc." in names
+    assert "Alphabet" in names
+    assert "Google Parent" in names
+
+
+def test_fetch_corporation_names_deduplicates():
+    """fetch_corporation_names removes duplicates across names and aliases.
+
+    Bug caught: if a name appears as both a canonical name and an alias on
+    another node (after dedup), the list contains duplicates that cause
+    resolve_pac_to_corporation to score the same name twice.
+    """
+    session = _make_session()
+    session.run.return_value = [
+        {"name": "Apple Inc.", "aliases": ["Apple"]},
+        {"name": "Apple",      "aliases": []},  # hypothetical pre-dedup state
+    ]
+
+    names = fetch_corporation_names(session)
+
+    assert names.count("Apple") == 1
+    assert names.count("Apple Inc.") == 1
+
+
+def test_fetch_corporate_pacs_from_graph_returns_connected_orgs():
+    """fetch_corporate_pacs_from_graph returns Committee nodes with connected_org set.
+
+    Bug caught: function returns all committees instead of filtering to corporate
+    PACs, bloating resolve_pac_to_corporation with irrelevant candidates.
+    """
+    session = _make_session()
+    session.run.return_value = [
+        {"committee_id": "C001", "connected_org_name": "Apple Inc."},
+    ]
+
+    pacs = fetch_corporate_pacs_from_graph(session)
+
+    assert len(pacs) == 1
+    assert pacs[0]["committee_id"] == "C001"
+    assert pacs[0]["connected_org_name"] == "Apple Inc."

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+from pathlib import Path
 
 import requests
 
@@ -13,60 +15,217 @@ logger = logging.getLogger(__name__)
 
 HEADERS = {"Accept": "application/sparql-results+json", "User-Agent": "PoliticalPurchaser/0.1"}
 
+# ---------------------------------------------------------------------------
+# Disk-backed cache for Wikidata API calls
+# ---------------------------------------------------------------------------
+
+_CACHE: dict = {"search_entities": {}, "subsidiaries": {}, "brands": {}}
+
+
+def _cache_path() -> Path:
+    return Path(settings.data_dir) / "wikidata" / "cache.json"
+
+
+def _load_cache() -> None:
+    """Load Wikidata API cache from disk. No-op if file missing or corrupt."""
+    p = _cache_path()
+    if not p.exists():
+        return
+    try:
+        data = json.loads(p.read_text())
+        if isinstance(data, dict):
+            _CACHE.update(data)
+    except Exception:
+        logger.debug("Failed to load Wikidata cache — starting fresh")
+    for key in ("search_entities", "subsidiaries", "brands"):
+        _CACHE.setdefault(key, {})
+
+
+def _save_cache() -> None:
+    """Persist Wikidata API cache to disk. No-op on error."""
+    try:
+        p = _cache_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(_CACHE, indent=2))
+    except Exception:
+        logger.warning("Failed to save Wikidata cache")
+
+
+_load_cache()
+
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 2.0  # seconds; doubled each attempt
+
+
+def _is_retryable(exc: requests.HTTPError) -> bool:
+    """Return True if this HTTP error is transient and worth retrying."""
+    if exc.response is not None:
+        return exc.response.status_code in _RETRYABLE_STATUS
+    # Fallback for cases where HTTPError is raised with just a status string
+    msg = str(exc)
+    return any(str(s) in msg for s in _RETRYABLE_STATUS)
+
 
 def query_sparql(sparql: str) -> list[dict]:
-    """Execute a SPARQL query against Wikidata and return bindings."""
-    resp = requests.get(
-        settings.wikidata_sparql_endpoint,
-        params={"query": sparql, "format": "json"},
-        headers=HEADERS,
-        timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get("results", {}).get("bindings", [])
+    """Execute a SPARQL query against Wikidata and return bindings.
+
+    Retries up to _MAX_RETRIES times with exponential backoff on transient
+    5xx / 429 errors (e.g. 502 Bad Gateway from Wikidata infrastructure blips).
+    Raises immediately on 4xx client errors — those are not transient.
+    """
+    last_exc: requests.HTTPError | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = requests.get(
+                settings.wikidata_sparql_endpoint,
+                params={"query": sparql, "format": "json"},
+                headers=HEADERS,
+                timeout=60,
+            )
+            resp.raise_for_status()
+            return resp.json().get("results", {}).get("bindings", [])
+        except requests.HTTPError as exc:
+            if not _is_retryable(exc):
+                raise
+            last_exc = exc
+            delay = _RETRY_BASE_DELAY * (2**attempt)
+            logger.warning(
+                "Wikidata SPARQL transient error (attempt %d/%d): %s — retrying in %.1fs",
+                attempt + 1,
+                _MAX_RETRIES,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    raise last_exc  # type: ignore[misc]
+
+
+def _search_entities(brand_name: str, limit: int = 5) -> list[str]:
+    """Use the Wikidata wbsearchentities Action API to find entity QIDs by name.
+
+    This is more reliable than wikibase:mwapi EntitySearch inside SPARQL, which
+    returns HTTP 500 for popular brand names due to Wikidata query engine timeouts.
+    Results are cached to data/wikidata/cache.json to avoid redundant API calls.
+    """
+    if brand_name in _CACHE["search_entities"]:
+        return _CACHE["search_entities"][brand_name]
+
+    last_exc: requests.HTTPError | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = requests.get(
+                WIKIDATA_API,
+                params={
+                    "action": "wbsearchentities",
+                    "search": brand_name,
+                    "type": "item",
+                    "language": "en",
+                    "limit": limit,
+                    "format": "json",
+                },
+                headers=HEADERS,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            break
+        except requests.HTTPError as exc:
+            if not _is_retryable(exc):
+                raise
+            last_exc = exc
+            delay = _RETRY_BASE_DELAY * (2**attempt)
+            logger.warning(
+                "wbsearchentities transient error (attempt %d/%d): %s — retrying in %.1fs",
+                attempt + 1,
+                _MAX_RETRIES,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    else:
+        raise last_exc  # type: ignore[misc]
+
+    results = []
+    for item in resp.json().get("search", []):
+        match_obj = item.get("match", {})
+        alias = match_obj.get("text") if match_obj.get("type") == "alias" else None
+        results.append({
+            "qid": item["id"],
+            "matched_alias": alias,
+            "label": item.get("label", ""),
+        })
+    _CACHE["search_entities"][brand_name] = results
+    _save_cache()
+    return results
 
 
 def find_corporation(brand_name: str) -> list[dict]:
-    """Find the corporate owner of a brand via Wikidata EntitySearch.
+    """Find the corporate owner of a brand via Wikidata.
 
-    Uses the mwapi EntitySearch SERVICE for fuzzy matching, filtered to
-    corporations (wdt:P31/wdt:P279* wd:Q783794). Returns a list of matches
-    with entity QID, label, and optional parent org / ticker.
+    Two-step approach:
+    1. wbsearchentities Action API for fuzzy name search → {qid, matched_alias}
+    2. SPARQL VALUES query filtered to business enterprises (Q4830453) → properties
+
+    This avoids wikibase:mwapi EntitySearch inside SPARQL, which returns HTTP 500
+    for popular brand names (e.g. 'Apple') due to Wikidata query engine timeouts.
+    The matched_alias from step 1 is threaded into results so that acronym brands
+    (AMD, ASUS) score correctly against their alias rather than the full legal name.
     """
     if not brand_name.strip():
         return []
 
+    try:
+        search_results = _search_entities(brand_name)
+    except Exception:
+        logger.exception("Wikidata entity search failed for brand '%s'", brand_name)
+        return []
+
+    if not search_results:
+        return []
+
+    # Build alias lookup and QID list from search results
+    alias_by_qid = {d["qid"]: d["matched_alias"] for d in search_results if d["matched_alias"]}
+    qid_list = [d["qid"] for d in search_results]
+
+    values = " ".join(f"wd:{q}" for q in qid_list)
     sparql = """
     SELECT ?item ?itemLabel ?parent ?parentLabel ?ticker WHERE {
-      SERVICE wikibase:mwapi {
-        bd:serviceParam wikibase:api "EntitySearch" ;
-                        wikibase:search "%s" ;
-                        wikibase:language "en" .
-        ?item wikibase:apiOutput mwapi:title .
-      }
-      ?item wdt:P31/wdt:P279* wd:Q783794 .
+      VALUES ?item { %s }
+      ?item wdt:P31/wdt:P279* wd:Q4830453 .
       OPTIONAL { ?item wdt:P749 ?parent . }
       OPTIONAL { ?item wdt:P249 ?ticker . }
       SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
     }
     LIMIT 5
-    """ % brand_name.replace('"', '\\"')
+    """ % values
 
     try:
-        results = query_sparql(sparql)
+        bindings = query_sparql(sparql)
     except Exception:
-        logger.exception("Wikidata query failed for brand '%s'", brand_name)
+        logger.exception("Wikidata SPARQL query failed for brand '%s'", brand_name)
         return []
-    return [_extract_binding(r) for r in results]
+
+    results = []
+    for r in bindings:
+        qid = _qid_from_uri(r.get("item", {}).get("value", ""))
+        alias = alias_by_qid.get(qid)  # None if no alias for this QID
+        results.append(_extract_binding(r, matched_alias=alias))
+    return results
 
 
 def get_subsidiaries(corporation_qid: str) -> list[dict]:
     """Get all subsidiaries of a corporation by Wikidata QID.
 
+    Results are cached to data/wikidata/cache.json.
+
     Args:
         corporation_qid: Wikidata entity ID (e.g. 'Q95')
     """
+    if corporation_qid in _CACHE["subsidiaries"]:
+        return _CACHE["subsidiaries"][corporation_qid]
+
     sparql = (
         """
     SELECT ?subsidiary ?subsidiaryLabel WHERE {
@@ -78,13 +237,80 @@ def get_subsidiaries(corporation_qid: str) -> list[dict]:
     )
 
     results = query_sparql(sparql)
-    return [
+    subsidiaries = [
         {
             "qid": _qid_from_uri(r["subsidiary"]["value"]),
             "name": r.get("subsidiaryLabel", {}).get("value", ""),
         }
         for r in results
     ]
+    _CACHE["subsidiaries"][corporation_qid] = subsidiaries
+    _save_cache()
+    return subsidiaries
+
+
+_BRAND_DISCOVERY_LIMIT = 200
+
+
+def discover_brands_for_corporation(corp_qid: str) -> list[dict]:
+    """Find consumer brands owned by a corporation via Wikidata reverse P749.
+
+    Returns entities that are children of corp_qid via P749 (parent org) but
+    are NOT instances of Q4830453 (business enterprise) — i.e. consumer brand
+    entities rather than subsidiary corporations (which are handled separately
+    by discover_subsidiaries_for_corpus).
+
+    Note: a returned entity may already exist as a Corporation node in Neo4j
+    from subsidiary discovery. This is intentional — Neo4j nodes can have both
+    Brand and Corporation labels for the same legal entity.
+
+    Args:
+        corp_qid: Wikidata entity ID (e.g. 'Q95'). Must start with 'Q'.
+
+    Returns:
+        List of {"name": str, "qid": str} dicts for brand entities.
+    """
+    if not corp_qid or not corp_qid.startswith("Q"):
+        return []
+
+    if corp_qid in _CACHE["brands"]:
+        return _CACHE["brands"][corp_qid]
+
+    sparql = """
+    SELECT ?item ?itemLabel WHERE {
+      ?item wdt:P749 wd:%s .
+      FILTER NOT EXISTS { ?item wdt:P31/wdt:P279* wd:Q4830453 }
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
+    }
+    LIMIT %d
+    """ % (
+        corp_qid,
+        _BRAND_DISCOVERY_LIMIT,
+    )
+
+    results = query_sparql(sparql)
+
+    if len(results) >= _BRAND_DISCOVERY_LIMIT:
+        logger.warning(
+            "discover_brands_for_corporation(%s): result count hit LIMIT %d — results may be truncated",
+            corp_qid,
+            _BRAND_DISCOVERY_LIMIT,
+        )
+
+    brands = []
+    for r in results:
+        name = r.get("itemLabel", {}).get("value", "")
+        if not name:
+            continue
+        brands.append(
+            {
+                "name": name,
+                "qid": _qid_from_uri(r.get("item", {}).get("value", "")),
+            }
+        )
+    _CACHE["brands"][corp_qid] = brands
+    _save_cache()
+    return brands
 
 
 def get_ownership_chain(entity_qid: str, max_depth: int = 10) -> list[dict]:
@@ -138,8 +364,16 @@ def batch_resolve_brands(brand_names: list[str], delay: float = 1.0) -> dict[str
     return results
 
 
-def _extract_binding(binding: dict) -> dict:
-    """Extract useful fields from a SPARQL result binding."""
+def _extract_binding(binding: dict, matched_alias: str | None = None) -> dict:
+    """Extract useful fields from a SPARQL result binding.
+
+    Args:
+        binding: SPARQL result binding dict.
+        matched_alias: Alias text from wbsearchentities when match.type==\"alias\",
+                       e.g. \"AMD\" for the entity labeled \"Advanced Micro Devices\".
+                       Only stored in result when truthy — prevents None leaking into
+                       similarity scoring.
+    """
     result = {
         "qid": _qid_from_uri(binding.get("item", {}).get("value", "")),
         "name": binding.get("itemLabel", {}).get("value", ""),
@@ -149,6 +383,8 @@ def _extract_binding(binding: dict) -> dict:
         result["parent_name"] = binding.get("parentLabel", {}).get("value", "")
     if "ticker" in binding:
         result["ticker"] = binding["ticker"]["value"]
+    if matched_alias:
+        result["alias"] = matched_alias
     return result
 
 

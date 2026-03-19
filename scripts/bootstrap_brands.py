@@ -6,18 +6,44 @@ you don't want to re-run FEC/scorecard steps.
 
 Usage:
     python scripts/bootstrap_brands.py
+    python scripts/bootstrap_brands.py --interactive   # prompt for low-confidence brands
 """
+
+import argparse
 
 from pipeline.config import ensure_data_dirs, get_neo4j_driver
 from pipeline.run_pipeline import run_brands
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Resolve brand names to corporate entities")
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Pause and prompt for manual brand matching when no confident match is found",
+    )
+    parser.add_argument(
+        "--retry-nulls",
+        action="store_true",
+        help="Re-resolve brands previously cached as null (no match found)",
+    )
+    parser.add_argument(
+        "--skip-discovery",
+        action="store_true",
+        help="Skip QID enrichment and subsidiary/brand discovery phases (faster for dev re-runs)",
+    )
+    args = parser.parse_args()
+
     ensure_data_dirs()
     driver = get_neo4j_driver()
     try:
         with driver.session() as session:
-            run_brands(session)
+            run_brands(
+                session,
+                interactive=args.interactive,
+                retry_nulls=args.retry_nulls,
+                skip_discovery=args.skip_discovery,
+            )
     finally:
         driver.close()
 

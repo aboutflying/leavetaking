@@ -45,23 +45,26 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, normalize_company_name(a), normalize_company_name(b)).ratio()
 
 
-def match_brand_to_corporation(
+def _get_scored_candidates(
     brand_name: str,
     wikidata_results: list[dict],
     oc_results: list[dict],
-    threshold: float = 0.7,
-) -> dict | None:
-    """Match a brand name to a corporate entity using Wikidata and OpenCorporates results.
+) -> list[dict]:
+    """Return all candidates from both sources scored and sorted by similarity descending.
 
-    Returns the best match above the threshold, or None.
+    Each returned dict is a fresh copy annotated with a 'score' float (0-1).
+    Input dicts are never mutated. Candidates with a missing or empty 'name'
+    receive score 0.0 rather than raising.
     """
-    candidates = []
+    scored: list[dict] = []
 
-    # Score Wikidata results
     for wd in wikidata_results:
         wd_name = wd.get("name", "")
-        score = similarity(brand_name, wd_name)
-        candidates.append(
+        alias = wd.get("alias") or ""  # handles absent key and None value safely
+        label_score = similarity(brand_name, wd_name) if wd_name else 0.0
+        alias_score = similarity(brand_name, alias) if alias else 0.0
+        score = max(label_score, alias_score)
+        scored.append(
             {
                 "name": wd_name,
                 "source": "wikidata",
@@ -73,11 +76,10 @@ def match_brand_to_corporation(
             }
         )
 
-    # Score OpenCorporates results
     for oc in oc_results:
         oc_name = oc.get("name", "")
-        score = similarity(brand_name, oc_name)
-        candidates.append(
+        score = similarity(brand_name, oc_name) if oc_name else 0.0
+        scored.append(
             {
                 "name": oc_name,
                 "source": "opencorporates",
@@ -90,8 +92,22 @@ def match_brand_to_corporation(
             }
         )
 
-    # Return best match above threshold
-    candidates.sort(key=lambda c: c["score"], reverse=True)
+    scored.sort(key=lambda c: c["score"], reverse=True)
+    return scored
+
+
+def match_brand_to_corporation(
+    brand_name: str,
+    wikidata_results: list[dict],
+    oc_results: list[dict],
+    threshold: float = 0.7,
+) -> dict | None:
+    """Match a brand name to a corporate entity using Wikidata and OpenCorporates results.
+
+    Returns the best match above the threshold, or None.
+    """
+    candidates = _get_scored_candidates(brand_name, wikidata_results, oc_results)
+
     if candidates and candidates[0]["score"] >= threshold:
         best = candidates[0]
         logger.info(

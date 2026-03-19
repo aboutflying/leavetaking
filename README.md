@@ -23,6 +23,65 @@ Amazon Page ──► Extension (badges from cached scores)
                     (FEC + Wikidata + Scorecards)
 ```
 
+### Pipeline Data Flow
+
+```mermaid
+flowchart TD
+    subgraph inputs["Inputs"]
+        TOP["TOP_BRANDS list\n(hardcoded ~50 brands)"]
+        SEED["Fortune 100 seed\n(schema/seed_fortune100.cypher)"]
+    end
+
+    subgraph brand_pipeline["Brand Pipeline (run_brands)"]
+        BR["Brand Resolution\nwbsearchentities → SPARQL\nbrand name → Corporation match"]
+        QID["QID Enrichment\nenrich_corporation_qids\nwbsearchentities + similarity ≥ 0.7"]
+        SUB["Subsidiary Discovery\ndiscover_subsidiaries_for_corpus\nWikidata P355 / reverse P749"]
+        BRD["Brand Discovery\ndiscover_brands_for_corpus\nreverse P749, excludes Q4830453"]
+    end
+
+    subgraph fec_pipeline["FEC Pipeline (run_fec)"]
+        FEC["Download bulk files\ncm · cn · pas2 · ccl"]
+        PAC["Resolve corporate PACs\nCorporation → OPERATES_PAC → Committee"]
+        CONTRIB["Load contributions\n24K/24Z support-only\nCommittee → CONTRIBUTED_TO → Candidate"]
+    end
+
+    subgraph scorecard_pipeline["Scorecard Pipeline (run_scorecards)"]
+        SC["Load scorecards\nLCV · ACLU · HRC · AFL-CIO"]
+        RATE["Resolve candidates\nScorecard → RATES → Candidate"]
+    end
+
+    subgraph score_pipeline["Score Computation (run_scores)"]
+        COMP["Traverse graph\nbrand → corp → PAC → candidate → issue"]
+        EXPORT["Export scores.json\nper-brand, per-issue weights"]
+    end
+
+    NEO[("Neo4j\nGraph DB")]
+    EXT["Chrome Extension\nbadges + detail overlay"]
+
+    TOP --> BR
+    SEED --> NEO
+    BR -->|"Brand + Corporation nodes\nOWNED_BY edges"| NEO
+    NEO --> QID
+    QID -->|"qid property on\nCorporation nodes"| NEO
+    NEO --> SUB
+    SUB -->|"Corporation nodes\nSUBSIDIARY_OF edges"| NEO
+    NEO --> BRD
+    BRD -->|"Brand nodes\nOWNED_BY edges"| NEO
+
+    NEO --> FEC
+    FEC --> PAC
+    PAC -->|"OPERATES_PAC edges"| NEO
+    FEC --> CONTRIB
+    CONTRIB -->|"Candidate · Committee nodes\nCONTRIBUTED_TO edges"| NEO
+
+    SC --> RATE
+    RATE -->|"RATES · SCORED edges"| NEO
+
+    NEO --> COMP
+    COMP --> EXPORT
+    EXPORT --> EXT
+```
+
 ### Components
 
 - **Data Pipeline** (`pipeline/`) — Fetches FEC campaign finance data, resolves brands to corporations via Wikidata/OpenCorporates, loads legislative scorecards, and pre-computes per-brand issue scores
@@ -117,6 +176,56 @@ The system uses legislative scorecards from organizations across the political s
 | AFL-CIO | Labor | Planned |
 
 This is how the tool stays politically neutral — it surfaces data, and users decide what matters.
+
+## How Scoring Works
+
+Scores are pre-computed weekly by traversing the graph from brand to issue:
+
+```
+Brand → (OWNED_BY) → Corporation → (SUBSIDIARY_OF*0..10) → Corporation
+  → (OPERATES_PAC) → Committee → (CONTRIBUTED_TO) → Candidate
+  → (RATES) → Scorecard → (COVERS) → Issue
+```
+
+For each `(brand, issue, scorecard)` combination, the pipeline collects every PAC contribution along this path and computes a **dollar-weighted average** of the candidates' scorecard ratings:
+
+```
+score = Σ(candidate_score × dollars_contributed) / Σ(dollars_contributed)
+```
+
+If all contributions have zero dollars (e.g., in-kind or unitemized), it falls back to a plain unweighted average. Scores are rounded to one decimal place.
+
+Each result also carries a **confidence tier**:
+
+| Confidence | Condition |
+|------------|-----------|
+| `high` | > $100k total flow **and** ≥ 5 unique candidates |
+| `medium` | > $10k total flow **or** ≥ 2 unique candidates |
+| `low` | everything else (sparse data or zero-dollar fallback) |
+
+Scores are stored **per scorecard org**, not collapsed into a single number. The extension combines them client-side based on which scorecards the user trusts. A user who trusts only the LCV scorecard sees only environment scores weighted by LCV ratings; a user who trusts LCV + HRC sees both.
+
+The exported `scores.json` schema:
+
+```json
+{
+  "meta": { "version": "0.2", "generated_at": "...", "brand_count": 42 },
+  "brands": {
+    "BrandName": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.2,
+          "dollars": 125000,
+          "candidates": 8,
+          "confidence": "high"
+        }
+      }
+    }
+  }
+}
+```
+
+> **Note:** Only PAC contributions (Tier 1) are included in scores today. Executive individual donations (Tier 2) and dark money via 501(c)(4)s are not tracked — the UI surfaces this limitation.
 
 ## Data Sources
 

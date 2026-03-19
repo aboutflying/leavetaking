@@ -14,8 +14,9 @@ from pipeline.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Single UNION ALL query combining PAC and executive donation paths.
-# Returns one row per (brand → corp → candidate → scorecard → issue) traversal.
+# PAC contribution path only (Tier 1).
+# Executive donation path (EXECUTIVE_OF / DONATED_TO) is deferred to Tier 2.
+# Returns one row per (brand → corp → PAC → candidate → scorecard → issue) traversal.
 # Python aggregates by (issue, scorecard) after the fact.
 CONTRIBUTION_QUERY = """
 MATCH (b:Brand {name: $brand_name})-[:OWNED_BY]->(:Corporation)
@@ -29,19 +30,6 @@ RETURN issue.name AS issue,
        cand.fec_candidate_id AS candidate_id,
        r.score AS score,
        toFloat(c.amount) AS dollars
-UNION ALL
-MATCH (b:Brand {name: $brand_name})-[:OWNED_BY]->(:Corporation)
-      -[:SUBSIDIARY_OF*0..10]->(corp:Corporation)
-MATCH (p:Person)-[:EXECUTIVE_OF]->(corp)
-MATCH (p)-[d:DONATED_TO]->(cand:Candidate)
-WHERE d.cycle IN $cycles
-MATCH (sc:Scorecard)-[r:RATES]->(cand)
-MATCH (sc)-[:COVERS]->(issue:Issue)
-RETURN issue.name AS issue,
-       sc.org_name AS scorecard,
-       cand.fec_candidate_id AS candidate_id,
-       r.score AS score,
-       toFloat(d.amount) AS dollars
 """
 
 ALL_BRANDS_QUERY = "MATCH (b:Brand) RETURN b.name AS name"
