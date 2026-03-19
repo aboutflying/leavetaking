@@ -48,5 +48,11 @@ FOR (c:Candidate) ON (c.name);
 CREATE INDEX committee_name IF NOT EXISTS
 FOR (c:Committee) ON (c.name);
 
+CREATE INDEX committee_type IF NOT EXISTS
+FOR (c:Committee) ON (c.type);
+
+CREATE INDEX committee_org_type IF NOT EXISTS
+FOR (c:Committee) ON (c.org_type);
+
 CREATE INDEX person_name IF NOT EXISTS
 FOR (p:Person) ON (p.name);

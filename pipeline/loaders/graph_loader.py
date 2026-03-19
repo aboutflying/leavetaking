@@ -230,12 +230,21 @@ def load_committees(session: Session, committees: list[dict]) -> int:
 
     Args:
         committees: List of dicts with keys from FEC committee master.
+
+    Properties set:
+        type         -- CMTE_TP: committee type (Q=qualified PAC, N=nonqualified PAC,
+                        H=House, S=Senate, P=Presidential, O=Super PAC, etc.)
+        org_type     -- ORG_TP: connected organization type (C=Corporation,
+                        L=Labor, M=Membership, T=Trade association,
+                        V=Cooperative, W=Corp without capital stock)
+        connected_org -- CONNECTED_ORG_NM: name of the sponsoring organization
     """
     query = """
     UNWIND $batch AS c
     MERGE (comm:Committee {fec_committee_id: c.committee_id})
     SET comm.name = c.committee_name,
         comm.type = c.type,
+        comm.org_type = c.interest_group_category,
         comm.connected_org = c.connected_org_name
     """
     return _batch_load(session, query, committees)
