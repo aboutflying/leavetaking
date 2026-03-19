@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     scores_output: Path = Path("extension/scores.json")
     max_ownership_depth: int = 10
     fec_cycles: list[int] = [2022, 2024]
+    scorecard_year: int = 2026
 
     model_config = {"env_prefix": "PP_", "env_file": ".env"}
 

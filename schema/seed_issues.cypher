@@ -35,69 +35,45 @@ MERGE (i:Issue {name: "fiscal_policy"})
 SET i.description = "Taxation, government spending, and budget policy";
 
 // --- Scorecard Nodes ---
+// year lives on RATES edges, not on the Scorecard node itself.
 
-MERGE (s:Scorecard {org_name: "ACLU", year: 2024})
+MERGE (s:Scorecard {org_name: "ACLU"})
 SET s.methodology_url = "https://www.aclu.org/legislative-scorecard";
 
-MERGE (s:Scorecard {org_name: "League of Conservation Voters", year: 2024})
+MERGE (s:Scorecard {org_name: "League of Conservation Voters"})
 SET s.methodology_url = "https://scorecard.lcv.org/";
 
-MERGE (s:Scorecard {org_name: "Human Rights Campaign", year: 2024})
+MERGE (s:Scorecard {org_name: "Human Rights Campaign"})
 SET s.methodology_url = "https://www.hrc.org/resources/congressional-scorecard";
 
-MERGE (s:Scorecard {org_name: "AFL-CIO", year: 2024})
+MERGE (s:Scorecard {org_name: "AFL-CIO"})
 SET s.methodology_url = "https://aflcio.org/scorecard";
 
-MERGE (s:Scorecard {org_name: "Heritage Action", year: 2024})
-SET s.methodology_url = "https://heritageaction.com/scorecard";
-
-MERGE (s:Scorecard {org_name: "NumbersUSA", year: 2024})
-SET s.methodology_url = "https://www.numbersusa.com/content/my/congress/report-cards";
-
-MERGE (s:Scorecard {org_name: "NRA", year: 2024})
-SET s.methodology_url = "https://www.nrapvf.org/grades";
-
-MERGE (s:Scorecard {org_name: "Giffords", year: 2024})
-SET s.methodology_url = "https://giffords.org/lawcenter/resources/scorecard/";
+MERGE (s:Scorecard {org_name: "EFF"})
+SET s.methodology_url = "https://www.eff.org/issues";
 
 // --- Link Scorecards to Issues ---
 
 MATCH (s:Scorecard {org_name: "ACLU"})
-WITH s
 MATCH (i:Issue {name: "civil_liberties"})
 MERGE (s)-[:COVERS]->(i);
 
+MATCH (s:Scorecard {org_name: "ACLU"})
+MATCH (i:Issue {name: "digital_rights"})
+MERGE (s)-[:COVERS]->(i);
+
 MATCH (s:Scorecard {org_name: "League of Conservation Voters"})
-WITH s
 MATCH (i:Issue {name: "environment"})
 MERGE (s)-[:COVERS]->(i);
 
 MATCH (s:Scorecard {org_name: "Human Rights Campaign"})
-WITH s
 MATCH (i:Issue {name: "lgbtq_rights"})
 MERGE (s)-[:COVERS]->(i);
 
 MATCH (s:Scorecard {org_name: "AFL-CIO"})
-WITH s
 MATCH (i:Issue {name: "labor"})
 MERGE (s)-[:COVERS]->(i);
 
-MATCH (s:Scorecard {org_name: "Heritage Action"})
-WITH s
-MATCH (i:Issue {name: "fiscal_policy"})
-MERGE (s)-[:COVERS]->(i);
-
-MATCH (s:Scorecard {org_name: "NumbersUSA"})
-WITH s
-MATCH (i:Issue {name: "immigration"})
-MERGE (s)-[:COVERS]->(i);
-
-MATCH (s:Scorecard {org_name: "NRA"})
-WITH s
-MATCH (i:Issue {name: "gun_policy"})
-MERGE (s)-[:COVERS]->(i);
-
-MATCH (s:Scorecard {org_name: "Giffords"})
-WITH s
-MATCH (i:Issue {name: "gun_policy"})
+MATCH (s:Scorecard {org_name: "EFF"})
+MATCH (i:Issue {name: "digital_rights"})
 MERGE (s)-[:COVERS]->(i);

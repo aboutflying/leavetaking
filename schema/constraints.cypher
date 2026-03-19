@@ -7,8 +7,8 @@
 CREATE CONSTRAINT brand_name IF NOT EXISTS
 FOR (b:Brand) REQUIRE b.name IS UNIQUE;
 
-CREATE CONSTRAINT corporation_name IF NOT EXISTS
-FOR (c:Corporation) REQUIRE c.name IS UNIQUE;
+CREATE INDEX corporation_name IF NOT EXISTS
+FOR (c:Corporation) ON (c.name);
 
 CREATE CONSTRAINT person_fec_id IF NOT EXISTS
 FOR (p:Person) REQUIRE p.fec_contributor_id IS UNIQUE;
@@ -22,8 +22,8 @@ FOR (c:Committee) REQUIRE c.fec_committee_id IS UNIQUE;
 CREATE CONSTRAINT issue_name IF NOT EXISTS
 FOR (i:Issue) REQUIRE i.name IS UNIQUE;
 
-CREATE CONSTRAINT scorecard_org_year IF NOT EXISTS
-FOR (s:Scorecard) REQUIRE (s.org_name, s.year) IS UNIQUE;
+CREATE CONSTRAINT scorecard_org_name IF NOT EXISTS
+FOR (s:Scorecard) REQUIRE s.org_name IS UNIQUE;
 
 // --- Indexes for common lookups ---
 
@@ -35,6 +35,9 @@ FOR (c:Corporation) ON (c.ticker);
 
 CREATE INDEX corporation_oc_id IF NOT EXISTS
 FOR (c:Corporation) ON (c.oc_id);
+
+CREATE INDEX corporation_cik IF NOT EXISTS
+FOR (c:Corporation) ON (c.cik);
 
 CREATE INDEX candidate_name IF NOT EXISTS
 FOR (c:Candidate) ON (c.name);

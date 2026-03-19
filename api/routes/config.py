@@ -23,7 +23,7 @@ class UserPreferences(BaseModel):
         "League of Conservation Voters",
         "AFL-CIO",
         "Human Rights Campaign",
-        "Heritage Action",
+        "EFF",
     ]
     issue_weights: dict[str, float] = {}
     show_low_confidence: bool = False
@@ -69,9 +69,6 @@ async def list_available_issues():
             {"org": "League of Conservation Voters", "issue": "environment", "perspective": "progressive"},
             {"org": "Human Rights Campaign", "issue": "lgbtq_rights", "perspective": "progressive"},
             {"org": "AFL-CIO", "issue": "labor", "perspective": "progressive"},
-            {"org": "Heritage Action", "issue": "fiscal_policy", "perspective": "conservative"},
-            {"org": "NumbersUSA", "issue": "immigration", "perspective": "restrictionist"},
-            {"org": "NRA", "issue": "gun_policy", "perspective": "gun rights"},
-            {"org": "Giffords", "issue": "gun_policy", "perspective": "gun safety"},
+            {"org": "EFF", "issue": "digital_rights", "perspective": "progressive"},
         ],
     }

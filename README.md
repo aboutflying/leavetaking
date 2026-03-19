@@ -109,10 +109,7 @@ The system uses legislative scorecards from organizations across the political s
 | League of Conservation Voters | Environment | Progressive |
 | Human Rights Campaign | LGBTQ+ Rights | Progressive |
 | AFL-CIO | Labor | Progressive |
-| Heritage Action | Fiscal Policy | Conservative |
-| NumbersUSA | Immigration | Restrictionist |
-| NRA | Gun Policy | Gun rights |
-| Giffords | Gun Policy | Gun safety |
+| EFF | Digital Rights | Progressive |
 
 This is how the tool stays politically neutral — it surfaces data, and users decide what matters.
 

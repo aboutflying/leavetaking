@@ -141,12 +141,8 @@ RETURN issue.name,
 - League of Conservation Voters (environment) - annual National Environmental Scorecard
 - Human Rights Campaign (LGBTQ+ rights) - congressional scorecard
 - AFL-CIO (labor) - legislative scorecard
-- NumbersUSA (immigration - restrictionist perspective)
-- Heritage Action (conservative policy baseline)
-- NRA (gun rights) / Giffords (gun safety)
 
-These provide opposing viewpoints on the same issues. Users choose which scorecards
-they trust, which is how configurability works without the system taking a political stance.
+Users choose which scorecards they trust, which is how configurability works.
 
 ## Design Decisions
 

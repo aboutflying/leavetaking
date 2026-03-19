@@ -263,7 +263,7 @@ def load_scorecard_ratings(session: Session, ratings: list[dict]) -> int:
     """
     query = """
     UNWIND $batch AS r
-    MATCH (sc:Scorecard {org_name: r.org_name, year: r.year})
+    MATCH (sc:Scorecard {org_name: r.org_name})
     MATCH (cand:Candidate {fec_candidate_id: r.fec_candidate_id})
     MERGE (sc)-[rate:RATES]->(cand)
     SET rate.score = toFloat(r.score),
