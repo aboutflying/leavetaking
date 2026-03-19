@@ -52,11 +52,13 @@ flowchart TD
 
     subgraph score_pipeline["Score Computation (run_scores)"]
         COMP["Traverse graph\nbrand → corp → PAC → candidate → issue"]
+        PERSIST["Persist BrandScore nodes\nHAS_SCORE · FOR_ISSUE · VIA_SCORECARD edges"]
         EXPORT["Export scores.json\nper-brand, per-issue weights"]
     end
 
     NEO[("Neo4j\nGraph DB")]
     EXT["Chrome Extension\nbadges + detail overlay"]
+    API["FastAPI\n/scores/{brand}/graph"]
 
     TOP --> BR
     SEED --> NEO
@@ -75,11 +77,14 @@ flowchart TD
     CONTRIB -->|"Candidate · Committee nodes\nCONTRIBUTED_TO edges"| NEO
 
     SC --> RATE
-    RATE -->|"RATES · SCORED edges"| NEO
+    RATE -->|"RATES edges"| NEO
 
     NEO --> COMP
+    COMP --> PERSIST
+    PERSIST -->|"BrandScore nodes\nHAS_SCORE · FOR_ISSUE · VIA_SCORECARD"| NEO
     COMP --> EXPORT
     EXPORT --> EXT
+    NEO --> API
 ```
 
 ### Components
@@ -205,7 +210,22 @@ Each result also carries a **confidence tier**:
 
 Scores are stored **per scorecard org**, not collapsed into a single number. The extension combines them client-side based on which scorecards the user trusts. A user who trusts only the LCV scorecard sees only environment scores weighted by LCV ratings; a user who trusts LCV + HRC sees both.
 
-The exported `scores.json` schema:
+### Graph-persisted scores (BrandScore nodes)
+
+After computing scores, the pipeline writes them back into the graph as `BrandScore` nodes — one per `(brand, issue, scorecard)` triplet:
+
+```
+(:Brand)-[:HAS_SCORE]->(:BrandScore)-[:FOR_ISSUE]->(:Issue)
+                                     [:VIA_SCORECARD]->(:Scorecard)
+```
+
+`BrandScore` properties: `score`, `dollars`, `candidates`, `confidence`, `cycles`, `computed_at`.
+
+This makes the graph the source of truth: the client-side payload can be reconstructed on-demand via `GET /api/v1/scores/{brand}/graph` without re-running the traversal. The `scores.json` export is a serialized snapshot used for offline extension caching; the graph is authoritative.
+
+The `BrandScore` nodes are merged (not inserted) on each pipeline run, so re-runs are safe and idempotent.
+
+### scores.json schema
 
 ```json
 {

@@ -1,9 +1,8 @@
-"""Tests for API endpoints (no Neo4j required for score lookup tests)."""
+"""Tests for API endpoints."""
 
 from __future__ import annotations
 
-import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,44 +16,13 @@ def client():
 
 
 @pytest.fixture
-def mock_scores(tmp_path):
-    """Create a temporary scores file in v0.2 format."""
-    scores = {
-        "meta": {"version": "0.2", "brand_count": 2},
-        "brands": {
-            "TestBrand": {
-                "environment": {
-                    "League of Conservation Voters": {
-                        "score": 72.5,
-                        "dollars": 50000,
-                        "candidates": 5,
-                        "confidence": "high",
-                    }
-                },
-                "labor": {
-                    "AFL-CIO": {
-                        "score": 45.0,
-                        "dollars": 25000,
-                        "candidates": 3,
-                        "confidence": "medium",
-                    }
-                },
-            },
-            "AnotherBrand": {
-                "environment": {
-                    "League of Conservation Voters": {
-                        "score": 30.0,
-                        "dollars": 10000,
-                        "candidates": 2,
-                        "confidence": "low",
-                    }
-                },
-            },
-        },
-    }
-    path = tmp_path / "scores.json"
-    path.write_text(json.dumps(scores))
-    return path
+def mock_driver(client):
+    """Patch app.state.neo4j_driver with a MagicMock for the duration of a test."""
+    mock = MagicMock()
+    mock.session.return_value.__enter__ = MagicMock(return_value=MagicMock())
+    mock.session.return_value.__exit__ = MagicMock(return_value=False)
+    app.state.neo4j_driver = mock
+    return mock
 
 
 class TestHealthEndpoint:
@@ -65,49 +33,62 @@ class TestHealthEndpoint:
 
 
 class TestScoreEndpoints:
-    def test_get_brand_scores(self, client, mock_scores):
-        from api.routes import scores as scores_module
-
-        scores_module._scores_cache = None
-        with patch.object(scores_module.settings, "scores_output", mock_scores):
+    def test_get_brand_scores(self, client, mock_driver):
+        """Catches wrong response shape or missing brand key."""
+        brand_scores = {
+            "environment": {
+                "League of Conservation Voters": {
+                    "score": 72.5,
+                    "dollars": 50000,
+                    "candidates": 5,
+                    "confidence": "high",
+                    "cycles": [2022, 2024],
+                    "computed_at": None,
+                }
+            }
+        }
+        with patch("api.routes.scores.query_brand_scores_from_graph", return_value=brand_scores):
             resp = client.get("/api/v1/scores/TestBrand")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["brand"] == "TestBrand"
-            assert "environment" in data
-            assert data["environment"]["League of Conservation Voters"]["score"] == 72.5
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["brand"] == "TestBrand"
+        assert data["environment"]["League of Conservation Voters"]["score"] == 72.5
 
-    def test_brand_not_found(self, client, mock_scores):
-        from api.routes import scores as scores_module
-
-        scores_module._scores_cache = None
-        with patch.object(scores_module.settings, "scores_output", mock_scores):
+    def test_brand_not_found(self, client, mock_driver):
+        """Catches wrong status code when BrandScore nodes are absent."""
+        with patch("api.routes.scores.query_brand_scores_from_graph", return_value={}):
             resp = client.get("/api/v1/scores/NonExistent")
-            assert resp.status_code == 404
+        assert resp.status_code == 404
 
-    def test_search_scores(self, client, mock_scores):
-        from api.routes import scores as scores_module
-
-        scores_module._scores_cache = None
-        with patch.object(scores_module.settings, "scores_output", mock_scores):
+    def test_search_scores(self, client, mock_driver):
+        """Catches wrong count or missing brand in search results."""
+        search_results = [
+            {
+                "brand": "TestBrand",
+                "environment": {
+                    "League of Conservation Voters": {
+                        "score": 72.5,
+                        "dollars": 50000,
+                        "candidates": 5,
+                        "confidence": "high",
+                        "cycles": [2022, 2024],
+                    }
+                },
+            }
+        ]
+        with patch("api.routes.scores.search_brand_scores_from_graph", return_value=search_results):
             resp = client.get("/api/v1/scores", params={"q": "Test"})
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["count"] == 1
-            assert data["results"][0]["brand"] == "TestBrand"
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 1
+        assert data["results"][0]["brand"] == "TestBrand"
 
-    def test_search_with_issue_filter(self, client, mock_scores):
-        from api.routes import scores as scores_module
-
-        scores_module._scores_cache = None
-        with patch.object(scores_module.settings, "scores_output", mock_scores):
-            resp = client.get(
-                "/api/v1/scores",
-                params={"q": "Test", "issues": ["environment"]},
-            )
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "environment" in data["results"][0]
+    def test_search_with_issue_filter(self, client, mock_driver):
+        """Catches issue filter not being forwarded to the query function."""
+        with patch("api.routes.scores.search_brand_scores_from_graph", return_value=[]) as mock_fn:
+            client.get("/api/v1/scores", params={"q": "Test", "issues": ["environment"]})
+        _, kwargs = mock_fn.call_args
+        assert kwargs["issues"] == ["environment"]
 
 
 class TestConfigEndpoints:

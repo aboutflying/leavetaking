@@ -49,7 +49,7 @@ from pipeline.processors.entity_resolution import (
     resolve_pac_to_corporation,
     similarity,
 )
-from pipeline.processors.score_computation import compute_all_scores, export_scores
+from pipeline.processors.score_computation import compute_all_scores, export_scores, write_brand_scores
 from pipeline.processors.scorecard_resolver import build_candidate_index, resolve_candidates
 
 logging.basicConfig(
@@ -587,9 +587,11 @@ def run_scorecards(session) -> None:
 
 
 def run_scores(session) -> None:
-    """Step 3: Pre-compute and export scores."""
+    """Step 3: Pre-compute scores, persist to graph, and export JSON."""
     logger.info("=== Score Computation ===")
     all_scores = compute_all_scores(session)
+    written = write_brand_scores(session, all_scores, cycles=settings.fec_cycles)
+    logger.info("Persisted %d BrandScore nodes to graph", written)
     output = export_scores(all_scores)
     logger.info("Scores exported to %s", output)
 

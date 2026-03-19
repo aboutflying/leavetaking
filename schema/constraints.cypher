@@ -59,3 +59,12 @@ FOR (c:Committee) ON (c.org_type);
 
 CREATE INDEX person_name IF NOT EXISTS
 FOR (p:Person) ON (p.name);
+
+// --- BrandScore: pre-computed (brand, issue, scorecard) aggregate ---
+// NODE KEY is Enterprise-only; use a composite index for efficient MERGE lookups.
+
+CREATE INDEX brand_score_lookup IF NOT EXISTS
+FOR (s:BrandScore) ON (s.brand_name, s.issue_name, s.scorecard_org);
+
+CREATE INDEX brand_score_brand_name IF NOT EXISTS
+FOR (s:BrandScore) ON (s.brand_name);

@@ -2,69 +2,44 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from fastapi import APIRouter, HTTPException, Query, Request
 
-from fastapi import APIRouter, HTTPException, Query
-
-from pipeline.config import settings
+from pipeline.processors.score_computation import (
+    query_brand_scores_from_graph,
+    search_brand_scores_from_graph,
+)
 
 router = APIRouter(tags=["scores"])
 
-_scores_cache: dict | None = None
-
-
-def _load_scores() -> dict:
-    """Load pre-computed scores from the JSON file."""
-    global _scores_cache
-    if _scores_cache is not None:
-        return _scores_cache
-
-    path = settings.scores_output
-    if not path.exists():
-        return {"meta": {"version": "0.2", "brand_count": 0}, "brands": {}}
-
-    _scores_cache = json.loads(path.read_text())
-    return _scores_cache
-
 
 @router.get("/scores/{brand_name}")
-async def get_brand_scores(brand_name: str):
+async def get_brand_scores(
+    request: Request,
+    brand_name: str,
+    issues: list[str] | None = Query(default=None, description="Filter by issue names"),
+    scorecards: list[str] | None = Query(default=None, description="Filter by scorecard orgs"),
+):
     """Get pre-computed issue scores for a brand."""
-    scores = _load_scores()
-    brand_data = scores.get("brands", {}).get(brand_name)
+    driver = request.app.state.neo4j_driver
+    with driver.session() as session:
+        scores = query_brand_scores_from_graph(session, brand_name, issues=issues, scorecards=scorecards)
 
-    if brand_data is None:
+    if not scores:
         raise HTTPException(status_code=404, detail=f"No scores found for brand: {brand_name}")
 
-    return {"brand": brand_name, **brand_data}
+    return {"brand": brand_name, **scores}
 
 
 @router.get("/scores")
 async def search_scores(
+    request: Request,
     q: str = Query(description="Brand name search query"),
     issues: list[str] | None = Query(default=None, description="Filter by issue names"),
+    scorecards: list[str] | None = Query(default=None, description="Filter by scorecard orgs"),
 ):
-    """Search scores by brand name (prefix match)."""
-    scores = _load_scores()
-    q_lower = q.lower()
-
-    results = []
-    for brand_name, brand_data in scores.get("brands", {}).items():
-        if q_lower in brand_name.lower():
-            entry = {"brand": brand_name}
-            for issue, data in brand_data.items():
-                if not issues or issue in issues:
-                    entry[issue] = data
-            results.append(entry)
+    """Search scores by brand name (substring match)."""
+    driver = request.app.state.neo4j_driver
+    with driver.session() as session:
+        results = search_brand_scores_from_graph(session, q, issues=issues, scorecards=scorecards)
 
     return {"results": results, "count": len(results)}
-
-
-@router.post("/scores/reload")
-async def reload_scores():
-    """Force reload of the pre-computed scores cache."""
-    global _scores_cache
-    _scores_cache = None
-    data = _load_scores()
-    return {"status": "reloaded", "brand_count": data.get("meta", {}).get("brand_count", 0)}
