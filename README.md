@@ -23,6 +23,65 @@ Amazon Page ──► Extension (badges from cached scores)
                     (FEC + Wikidata + Scorecards)
 ```
 
+### Pipeline Data Flow
+
+```mermaid
+flowchart TD
+    subgraph inputs["Inputs"]
+        TOP["TOP_BRANDS list\n(hardcoded ~50 brands)"]
+        SEED["Fortune 100 seed\n(schema/seed_fortune100.cypher)"]
+    end
+
+    subgraph brand_pipeline["Brand Pipeline (run_brands)"]
+        BR["Brand Resolution\nwbsearchentities → SPARQL\nbrand name → Corporation match"]
+        QID["QID Enrichment\nenrich_corporation_qids\nwbsearchentities + similarity ≥ 0.7"]
+        SUB["Subsidiary Discovery\ndiscover_subsidiaries_for_corpus\nWikidata P355 / reverse P749"]
+        BRD["Brand Discovery\ndiscover_brands_for_corpus\nreverse P749, excludes Q4830453"]
+    end
+
+    subgraph fec_pipeline["FEC Pipeline (run_fec)"]
+        FEC["Download bulk files\ncm · cn · pas2 · ccl"]
+        PAC["Resolve corporate PACs\nCorporation → OPERATES_PAC → Committee"]
+        CONTRIB["Load contributions\n24K/24Z support-only\nCommittee → CONTRIBUTED_TO → Candidate"]
+    end
+
+    subgraph scorecard_pipeline["Scorecard Pipeline (run_scorecards)"]
+        SC["Load scorecards\nLCV · ACLU · HRC · AFL-CIO"]
+        RATE["Resolve candidates\nScorecard → RATES → Candidate"]
+    end
+
+    subgraph score_pipeline["Score Computation (run_scores)"]
+        COMP["Traverse graph\nbrand → corp → PAC → candidate → issue"]
+        EXPORT["Export scores.json\nper-brand, per-issue weights"]
+    end
+
+    NEO[("Neo4j\nGraph DB")]
+    EXT["Chrome Extension\nbadges + detail overlay"]
+
+    TOP --> BR
+    SEED --> NEO
+    BR -->|"Brand + Corporation nodes\nOWNED_BY edges"| NEO
+    NEO --> QID
+    QID -->|"qid property on\nCorporation nodes"| NEO
+    NEO --> SUB
+    SUB -->|"Corporation nodes\nSUBSIDIARY_OF edges"| NEO
+    NEO --> BRD
+    BRD -->|"Brand nodes\nOWNED_BY edges"| NEO
+
+    NEO --> FEC
+    FEC --> PAC
+    PAC -->|"OPERATES_PAC edges"| NEO
+    FEC --> CONTRIB
+    CONTRIB -->|"Candidate · Committee nodes\nCONTRIBUTED_TO edges"| NEO
+
+    SC --> RATE
+    RATE -->|"RATES · SCORED edges"| NEO
+
+    NEO --> COMP
+    COMP --> EXPORT
+    EXPORT --> EXT
+```
+
 ### Components
 
 - **Data Pipeline** (`pipeline/`) — Fetches FEC campaign finance data, resolves brands to corporations via Wikidata/OpenCorporates, loads legislative scorecards, and pre-computes per-brand issue scores
