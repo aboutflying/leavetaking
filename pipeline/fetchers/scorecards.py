@@ -100,17 +100,41 @@ class ScorecardFetcher(Protocol):
 
 _SKIP_SCORE_VALUES_EXTENDED = _SKIP_SCORE_VALUES | {"na", "NA"}
 
+# US state/territory name → 2-letter abbreviation, for moc-listing section headers
+_STATE_ABBREVS: dict[str, str] = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+    "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+    "Wisconsin": "WI", "Wyoming": "WY", "District of Columbia": "DC",
+    "American Samoa": "AS", "Guam": "GU", "Northern Mariana Islands": "MP",
+    "Puerto Rico": "PR", "Virgin Islands": "VI",
+}
+
 
 class LCVFetcher:
     """Reads League of Conservation Voters annual scorecard from a local CSV.
 
-    Expected file: data/scorecards/lcv_{year}.csv
-    Downloaded manually from scorecard.lcv.org (no public API available).
+    Supports two file formats:
 
-    CSV columns: Member, State, Party, {year} Score, Lifetime Score
+    **moc-listing format** (preferred — LCV's actual download):
+      Filename: ``data/scorecards/moc-listing-{year}-{date}.csv``
+      Structure: Senate and House sections, state names as section dividers,
+      columns: First Name, Last Name, Party, District, Year Score, Lifetime Score, URL
 
-    The score column is detected by name (e.g. "2024 Score") so that CSVs with
-    the wrong year's score column are caught early and logged as a warning.
+    **Legacy format** (fallback):
+      Filename: ``data/scorecards/lcv_{year}.csv``
+      Columns: Member, State, Party, {year} Score, Lifetime Score
+
+    When both exist for the same year, moc-listing takes precedence.
     """
 
     def __init__(self, data_dir: Path, issue: str = "environment") -> None:
@@ -118,11 +142,76 @@ class LCVFetcher:
         self.issue = issue
 
     def fetch(self, year: int) -> Iterator[RawRating]:
+        moc_matches = sorted(self.data_dir.glob(f"moc-listing-{year}-*.csv"))
+        if moc_matches:
+            yield from self._fetch_moc_listing(moc_matches[-1], year)
+            return
         path = self.data_dir / f"lcv_{year}.csv"
         if not path.exists():
-            logger.info("LCV file not found for %d: %s", year, path)
+            logger.info("LCV file not found for %d", year)
             return
+        yield from self._fetch_legacy(path, year)
 
+    def _fetch_moc_listing(self, path: Path, year: int) -> Iterator[RawRating]:
+        """Parse LCV's moc-listing CSV format."""
+        logger.info("Loading LCV moc-listing from %s", path)
+        current_state: str | None = None
+
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row:
+                    continue
+                stripped = [cell.strip() for cell in row]
+
+                if len(stripped) == 1:
+                    val = stripped[0]
+                    if val in ("Senate", "House"):
+                        current_state = None
+                        continue
+                    if val in _STATE_ABBREVS:
+                        current_state = _STATE_ABBREVS[val]
+                    continue
+
+                if len(stripped) >= 7 and stripped[0] == "First Name":
+                    continue  # header row
+
+                if len(stripped) < 7:
+                    continue
+
+                first_name, last_name, party_raw, _district, score_raw = stripped[:5]
+                candidate_name = f"{first_name} {last_name}".strip()
+
+                if not candidate_name or not current_state:
+                    logger.warning(
+                        "Skipping row with missing name or state: %r", stripped
+                    )
+                    continue
+
+                if score_raw in _SKIP_SCORE_VALUES_EXTENDED:
+                    logger.debug("Skipping blank/NA score for %s", candidate_name)
+                    continue
+
+                try:
+                    score = normalize_score(score_raw)
+                except ValueError:
+                    logger.warning(
+                        "Skipping unrecognized score %r for %s", score_raw, candidate_name
+                    )
+                    continue
+
+                yield RawRating(
+                    org_name="League of Conservation Voters",
+                    year=year,
+                    issue=self.issue,
+                    candidate_name=candidate_name,
+                    state=current_state,
+                    score=score,
+                    party=party_raw.strip().upper()[:1] or None,
+                )
+
+    def _fetch_legacy(self, path: Path, year: int) -> Iterator[RawRating]:
+        """Parse legacy lcv_{year}.csv format."""
         score_col = f"{year} Score"
 
         with open(path, encoding="utf-8-sig", newline="") as f:

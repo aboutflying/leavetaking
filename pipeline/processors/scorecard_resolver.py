@@ -275,4 +275,5 @@ def resolve_candidates(
                 "year": rating.year,
                 "fec_candidate_id": fec_id,
                 "score": rating.score,
+                "candidate_name": rating.candidate_name,
             }

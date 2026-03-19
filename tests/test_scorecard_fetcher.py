@@ -127,6 +127,102 @@ def test_lcv_fetcher_skips_missing_file(tmp_path):
     assert ratings == []
 
 
+# ---------------------------------------------------------------------------
+# LCVFetcher — moc-listing format (LCV's actual download)
+# ---------------------------------------------------------------------------
+
+
+def _write_moc_listing_csv(tmp_path: Path, year: int, rows: list[dict]) -> Path:
+    """Write a minimal moc-listing-style CSV and return the path."""
+    path = tmp_path / f"moc-listing-{year}-01-01.csv"
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        f.write("Senate\n")
+        f.write('"First Name","Last Name",Party,District,"Year Score","Lifetime Score",URL\n')
+        for row in rows:
+            state_name = row.get("_state_header", "")
+            if state_name:
+                f.write(f"{state_name}\n")
+            f.write(
+                f"{row['first']},{row['last']},{row.get('party', 'D')},"
+                f"{row.get('district', '')},{row['score']},90,https://lcv.org/\n"
+            )
+    return path
+
+
+def test_lcv_fetcher_moc_listing_yields_raw_ratings(tmp_path):
+    """moc-listing format: parses First Name + Last Name, state from section header."""
+    _write_moc_listing_csv(
+        tmp_path,
+        2026,
+        [
+            {"_state_header": "California", "first": "Alex", "last": "Padilla", "party": "D", "score": "97"},
+        ],
+    )
+    fetcher = LCVFetcher(tmp_path)
+    ratings = list(fetcher.fetch(2026))
+
+    assert len(ratings) == 1
+    r = ratings[0]
+    assert r.candidate_name == "Alex Padilla"
+    assert r.state == "CA"
+    assert r.score == 97.0
+    assert r.party == "D"
+    assert r.org_name == "League of Conservation Voters"
+    assert r.year == 2026
+
+
+def test_lcv_fetcher_moc_listing_multiple_states(tmp_path):
+    """State tracking resets correctly between state-name section headers."""
+    _write_moc_listing_csv(
+        tmp_path,
+        2026,
+        [
+            {"_state_header": "Alabama", "first": "Katie", "last": "Britt", "party": "R", "score": "0"},
+            {"_state_header": "Alaska", "first": "Lisa", "last": "Murkowski", "party": "R", "score": "20"},
+        ],
+    )
+    fetcher = LCVFetcher(tmp_path)
+    ratings = list(fetcher.fetch(2026))
+
+    assert len(ratings) == 2
+    assert ratings[0].state == "AL"
+    assert ratings[1].state == "AK"
+
+
+def test_lcv_fetcher_moc_listing_preferred_over_legacy(tmp_path):
+    """moc-listing file takes precedence over lcv_{year}.csv when both exist."""
+    # Write legacy file with different data
+    _write_lcv_csv(tmp_path, 2026, [
+        {"Member": "Legacy Person", "State": "TX", "Party": "R", "2026 Score": "10", "Lifetime Score": "10"},
+    ])
+    # Write moc-listing file
+    _write_moc_listing_csv(tmp_path, 2026, [
+        {"_state_header": "California", "first": "Alex", "last": "Padilla", "party": "D", "score": "97"},
+    ])
+    fetcher = LCVFetcher(tmp_path)
+    ratings = list(fetcher.fetch(2026))
+
+    assert len(ratings) == 1
+    assert ratings[0].candidate_name == "Alex Padilla"
+
+
+def test_lcv_fetcher_moc_listing_skips_blank_score(tmp_path):
+    """Rows with blank score are silently skipped; valid rows still yielded."""
+    _write_moc_listing_csv(
+        tmp_path,
+        2026,
+        [
+            {"_state_header": "Ohio", "first": "Jane", "last": "Doe", "party": "D", "score": ""},
+            {"first": "John", "last": "Smith", "party": "R", "score": "10"},
+        ],
+    )
+    fetcher = LCVFetcher(tmp_path)
+    ratings = list(fetcher.fetch(2026))
+
+    assert len(ratings) == 1
+    assert ratings[0].candidate_name == "John Smith"
+
+
 def test_lcv_fetcher_score_column_detection(tmp_path):
     """Year-specific score column (e.g. '2024 Score') is detected and parsed."""
     _write_lcv_csv(

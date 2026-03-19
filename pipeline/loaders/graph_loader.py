@@ -262,8 +262,12 @@ def load_individual_donations(session: Session, donations: list[dict]) -> int:
 def load_scorecard_ratings(session: Session, ratings: list[dict]) -> int:
     """Load Scorecard-RATES->Candidate edges.
 
+    Also accumulates scorecard candidate name variants into cand.aliases so the
+    golden record (FEC name) retains all alternate names seen across sources.
+
     Args:
-        ratings: List of dicts with keys: org_name, year, fec_candidate_id, score.
+        ratings: List of dicts with keys: org_name, year, fec_candidate_id, score,
+                 and optionally candidate_name (the name as it appeared in the scorecard).
     """
     query = """
     UNWIND $batch AS r
@@ -272,6 +276,10 @@ def load_scorecard_ratings(session: Session, ratings: list[dict]) -> int:
     MERGE (sc)-[rate:RATES]->(cand)
     SET rate.score = toFloat(r.score),
         rate.year = r.year
+    WITH cand, r
+    WHERE r.candidate_name IS NOT NULL
+      AND NOT r.candidate_name IN coalesce(cand.aliases, [])
+    SET cand.aliases = coalesce(cand.aliases, []) + r.candidate_name
     """
     return _batch_load(session, query, ratings)
 

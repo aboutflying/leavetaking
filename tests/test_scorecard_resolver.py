@@ -154,6 +154,7 @@ def test_resolve_candidates_match():
         "year": 2024,
         "fec_candidate_id": "H8CA05036",
         "score": 100.0,
+        "candidate_name": "Nancy Pelosi",
     }
 
 
