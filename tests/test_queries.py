@@ -19,20 +19,31 @@ def client():
 
 @pytest.fixture
 def mock_scores(tmp_path):
-    """Create a temporary scores file."""
+    """Create a temporary scores file in v0.2 format."""
     scores = {
-        "meta": {"version": "0.1", "brand_count": 2},
+        "meta": {"version": "0.2", "brand_count": 2},
         "brands": {
             "TestBrand": {
-                "issues": {
-                    "environment": {"score": 72.5, "confidence": "high"},
-                    "labor": {"score": 45.0, "confidence": "medium"},
-                }
+                "environment": {
+                    "League of Conservation Voters": {
+                        "score": 72.5, "dollars": 50000,
+                        "candidates": 5, "confidence": "high",
+                    }
+                },
+                "labor": {
+                    "AFL-CIO": {
+                        "score": 45.0, "dollars": 25000,
+                        "candidates": 3, "confidence": "medium",
+                    }
+                },
             },
             "AnotherBrand": {
-                "issues": {
-                    "environment": {"score": 30.0, "confidence": "low"},
-                }
+                "environment": {
+                    "League of Conservation Voters": {
+                        "score": 30.0, "dollars": 10000,
+                        "candidates": 2, "confidence": "low",
+                    }
+                },
             },
         },
     }
@@ -58,8 +69,8 @@ class TestScoreEndpoints:
             assert resp.status_code == 200
             data = resp.json()
             assert data["brand"] == "TestBrand"
-            assert "environment" in data["issues"]
-            assert data["issues"]["environment"]["score"] == 72.5
+            assert "environment" in data
+            assert data["environment"]["League of Conservation Voters"]["score"] == 72.5
 
     def test_brand_not_found(self, client, mock_scores):
         from api.routes import scores as scores_module
@@ -91,7 +102,7 @@ class TestScoreEndpoints:
             )
             assert resp.status_code == 200
             data = resp.json()
-            assert "environment" in data["results"][0]["issues"]
+            assert "environment" in data["results"][0]
 
 
 class TestConfigEndpoints:
@@ -124,4 +135,4 @@ class TestConfigEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["issues"]) == 10
-        assert len(data["scorecards"]) == 8
+        assert len(data["scorecards"]) == 5

@@ -105,7 +105,7 @@ def run_fec(session) -> None:
 def run_scorecards(session) -> None:
     """Step 2: Load scorecard data, resolve to FEC candidate IDs, and load edges."""
     logger.info("=== Scorecard Pipeline ===")
-    raw = load_all_scorecards(settings.fec_cycles)
+    raw = load_all_scorecards(settings.scorecard_year)
     index = build_candidate_index(session)
     logger.info("Candidate index built: %d entries", len(index))
     ratings = list(resolve_candidates(raw, index))

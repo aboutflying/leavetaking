@@ -29,6 +29,7 @@ class RawRating:
     candidate_name: str
     state: str
     score: float
+    party: str | None = None  # single uppercase letter: R, D, I, etc.
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +88,9 @@ class ScorecardFetcher(Protocol):
 # LCV fetcher (reference implementation)
 # ---------------------------------------------------------------------------
 
+_SKIP_SCORE_VALUES_EXTENDED = _SKIP_SCORE_VALUES | {"na", "NA"}
+
+
 class LCVFetcher:
     """Reads League of Conservation Voters annual scorecard from a local CSV.
 
@@ -94,6 +98,9 @@ class LCVFetcher:
     Downloaded manually from scorecard.lcv.org (no public API available).
 
     CSV columns: Member, State, Party, {year} Score, Lifetime Score
+
+    The score column is detected by name (e.g. "2024 Score") so that CSVs with
+    the wrong year's score column are caught early and logged as a warning.
     """
 
     def __init__(self, data_dir: Path, issue: str = "environment") -> None:
@@ -106,58 +113,45 @@ class LCVFetcher:
             logger.info("LCV file not found for %d: %s", year, path)
             return
 
-        # encoding='utf-8-sig' strips BOM from Excel-exported CSVs
+        score_col = f"{year} Score"
+
         with open(path, encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
-            fieldnames = reader.fieldnames or []
-
-            # Detect year-specific score column (e.g. '2024 Score')
-            target = f"{year} score"
-            score_col = next(
-                (fn for fn in fieldnames if fn.strip().lower() == target),
-                None,
-            )
-            if score_col is None:
+            if score_col not in (reader.fieldnames or []):
                 logger.warning(
-                    "LCV CSV %s has no '%d Score' column (found: %s)",
-                    path.name, year, fieldnames,
+                    "LCV CSV for %d missing expected score column '%s' — skipping",
+                    year, score_col,
                 )
                 return
 
             for row in reader:
+                member = row.get("Member", "").strip()
+                state = row.get("State", "").strip().upper()
+                party_raw = row.get("Party", "").strip().upper()
                 score_raw = row.get(score_col, "").strip()
 
-                if score_raw in _SKIP_SCORE_VALUES:
-                    logger.debug(
-                        "Skipping blank/NA score for %s", row.get("Member")
-                    )
+                if not member or not state:
+                    logger.warning("Skipping row with missing member or state: %r", dict(row))
+                    continue
+
+                if score_raw in _SKIP_SCORE_VALUES_EXTENDED:
+                    logger.debug("Skipping blank/NA score for %s", member)
                     continue
 
                 try:
                     score = normalize_score(score_raw)
                 except ValueError:
-                    logger.warning(
-                        "Skipping unrecognized score %r for %s",
-                        score_raw, row.get("Member"),
-                    )
-                    continue
-
-                candidate_name = row.get("Member", "").strip()
-                state = row.get("State", "").strip().upper()
-
-                if not candidate_name or not state:
-                    logger.warning(
-                        "Skipping row with missing Member or State: %r", row
-                    )
+                    logger.warning("Skipping unrecognized score %r for %s", score_raw, member)
                     continue
 
                 yield RawRating(
                     org_name="League of Conservation Voters",
                     year=year,
                     issue=self.issue,
-                    candidate_name=candidate_name,
+                    candidate_name=member,
                     state=state,
                     score=score,
+                    party=party_raw[:1] or None,
                 )
 
 
@@ -170,7 +164,7 @@ class JsonFileFetcher:
 
     Expected file: data/scorecards/{org_name_snake}_{year}.json
     where org_name_snake = org_name.lower().replace(' ', '_')
-    e.g. 'ACLU' -> 'aclu_2024.json', 'Heritage Action' -> 'heritage_action_2024.json'
+    e.g. 'ACLU' -> 'aclu_2024.json', 'EFF' -> 'eff_2024.json'
 
     JSON format::
 
@@ -249,13 +243,15 @@ FETCHER_REGISTRY: dict[str, ScorecardFetcher] = {
 }
 
 
-def load_all_scorecards(cycles: list[int]) -> Iterator[RawRating]:
-    """Yield RawRating records from all registered fetchers across all cycles.
+def load_all_scorecards(years: int | list[int]) -> Iterator[RawRating]:
+    """Yield RawRating records from all registered fetchers for the given year(s).
 
-    Adding a new org: register a fetcher in FETCHER_REGISTRY — no other
-    changes needed here or in run_pipeline.py.
+    Accepts a single year int or a list of years. Adding a new org: register a
+    fetcher in FETCHER_REGISTRY — no other changes needed.
     """
+    if isinstance(years, int):
+        years = [years]
     for org_name, fetcher in FETCHER_REGISTRY.items():
-        for year in cycles:
+        for year in years:
             logger.info("Loading scorecard: %s %d", org_name, year)
             yield from fetcher.fetch(year)
