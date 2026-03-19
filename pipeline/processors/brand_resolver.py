@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -114,11 +115,57 @@ def resolve_brand(
     return None
 
 
+def _stdin_prompt(brand_name: str, candidates: list[dict]) -> dict | None:
+    """Prompt the user at the terminal to pick a corporate match.
+
+    Displays each candidate with its name, similarity score, and source identifier
+    so the user can make an informed choice. Returns the chosen candidate dict,
+    or None if the user skips.
+
+    Returns None immediately (without blocking) when stdin is not a TTY, so that
+    cron jobs and CI pipelines are unaffected.
+    """
+    if not sys.stdin.isatty():
+        logger.warning(
+            "stdin is not a TTY — skipping interactive prompt for '%s'", brand_name
+        )
+        return None
+
+    print(f"\nBrand: {brand_name}")
+    print("No confident match found. Candidates:")
+    for i, c in enumerate(candidates, 1):
+        name = c.get("name") or ""
+        name_col = (name[:37] + "...") if len(name) > 40 else name
+        score = c.get("score") or 0.0
+        source = c.get("source", "?")
+        if source == "wikidata":
+            source_id = c.get("qid") or "?"
+        else:
+            jurisdiction = c.get("jurisdiction") or "?"
+            company_number = c.get("company_number") or "?"
+            source_id = f"{jurisdiction}/{company_number}"
+        print(f"  {i}. {name_col:<40} score={score:.2f}  [{source:<15} {source_id}]")
+    print("  s. Skip (record as unresolved)")
+    print()
+
+    while True:
+        try:
+            raw = input(f"Choice [1-{len(candidates)} / s]: ").strip().lower()
+        except EOFError:
+            logger.warning("EOF on stdin — treating as skip for '%s'", brand_name)
+            return None
+        if raw == "s":
+            return None
+        if raw.isdigit() and 1 <= int(raw) <= len(candidates):
+            return candidates[int(raw) - 1]
+        print(f"  Invalid choice, enter 1-{len(candidates)} or s.")
+
+
 def resolve_all_brands(
     brand_names: list[str],
     cache_path: Path,
     max_oc_calls: int = 20,
-    prompt_fn: Callable[[str, list[dict]], dict | None] | None = None,
+    prompt_fn: Callable[[str, list[dict]], dict | None] | None = _stdin_prompt,
 ) -> dict[str, dict]:
     """Resolve a list of brand names, writing cache after each one.
 

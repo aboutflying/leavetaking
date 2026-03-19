@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch
 
 
-from pipeline.processors.brand_resolver import resolve_all_brands, resolve_brand
+from pipeline.processors.brand_resolver import _stdin_prompt, resolve_all_brands, resolve_brand
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -269,3 +269,101 @@ class TestResolveBrandPromptFn:
             import pytest
             with pytest.raises(RuntimeError, match="prompt error"):
                 resolve_brand("Bose", oc_calls_used=[0], prompt_fn=exploding_prompt)
+
+
+# ---------------------------------------------------------------------------
+# _stdin_prompt — terminal UI
+# ---------------------------------------------------------------------------
+
+_PROMPT_CANDIDATES = [
+    {"name": "Bose Corporation", "score": 0.61, "source": "wikidata", "qid": "Q174959"},
+    {"name": "Bose Audio GmbH", "score": 0.44, "source": "opencorporates",
+     "jurisdiction": "de", "company_number": "456"},
+]
+
+
+class TestStdinPrompt:
+    def test_returns_first_candidate_on_choice_1(self):
+        """Typing '1' returns the first (highest-scoring) candidate.
+
+        Bug caught: _stdin_prompt uses wrong index or ignores input entirely.
+        """
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch("builtins.input", return_value="1"),
+        ):
+            result = _stdin_prompt("Bose", _PROMPT_CANDIDATES)
+        assert result is _PROMPT_CANDIDATES[0]
+
+    def test_returns_none_on_skip(self):
+        """Typing 's' records brand as unresolved (user skipped).
+
+        Bug caught: skip choice not honored — returns a candidate instead of None.
+        """
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch("builtins.input", return_value="s"),
+        ):
+            result = _stdin_prompt("Bose", _PROMPT_CANDIDATES)
+        assert result is None
+
+    def test_returns_none_without_calling_input_when_not_tty(self):
+        """When stdin is not a TTY, returns None immediately without calling input().
+
+        Bug caught: pipeline blocks on input() in cron/CI where stdin is a pipe.
+        """
+        from unittest.mock import Mock
+        mock_input = Mock()
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch("builtins.input", mock_input),
+        ):
+            result = _stdin_prompt("Bose", _PROMPT_CANDIDATES)
+        assert result is None
+        mock_input.assert_not_called()
+
+    def test_reprompts_on_invalid_input_then_succeeds(self):
+        """Invalid choices ('99', '0', 'x') cause re-prompt; valid '1' succeeds.
+
+        Bug caught: invalid input crashes with ValueError or IndexError instead
+        of printing an error and asking again.
+        """
+        from unittest.mock import Mock, call
+        mock_input = Mock(side_effect=["99", "0", "x", "1"])
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch("builtins.input", mock_input),
+        ):
+            result = _stdin_prompt("Bose", _PROMPT_CANDIDATES)
+        assert result is _PROMPT_CANDIDATES[0]
+        assert mock_input.call_count == 4
+
+    def test_returns_none_on_eof_without_raising(self):
+        """EOFError from input() returns None instead of propagating.
+
+        Bug caught: pipeline crashes mid-batch when stdin closes (remote session
+        drop, piped file ends).
+        """
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch("builtins.input", side_effect=EOFError),
+        ):
+            result = _stdin_prompt("Bose", _PROMPT_CANDIDATES)
+        assert result is None
+
+    def test_resolve_all_brands_default_prompt_fn_is_stdin_prompt(self):
+        """resolve_all_brands default prompt_fn is _stdin_prompt, not None.
+
+        Bug caught: resolve_all_brands defaults to prompt_fn=None, so the
+        pipeline never prompts even when brands fall below threshold.
+
+        Uses inspect.signature to verify the wiring at definition time —
+        patching the module-level name wouldn't work because default arguments
+        are evaluated when the function is defined, not when it's called.
+        """
+        import inspect
+        sig = inspect.signature(resolve_all_brands)
+        default = sig.parameters["prompt_fn"].default
+        assert default is _stdin_prompt, (
+            f"resolve_all_brands prompt_fn default should be _stdin_prompt, got {default!r}"
+        )
