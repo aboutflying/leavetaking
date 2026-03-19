@@ -60,7 +60,10 @@ def _get_scored_candidates(
 
     for wd in wikidata_results:
         wd_name = wd.get("name", "")
-        score = similarity(brand_name, wd_name) if wd_name else 0.0
+        alias = wd.get("alias") or ""  # handles absent key and None value safely
+        label_score = similarity(brand_name, wd_name) if wd_name else 0.0
+        alias_score = similarity(brand_name, alias) if alias else 0.0
+        score = max(label_score, alias_score)
         scored.append(
             {
                 "name": wd_name,

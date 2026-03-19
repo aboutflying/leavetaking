@@ -86,6 +86,42 @@ class TestGetScoredCandidates:
         assert wd[0] == original, "Input dict was mutated"
 
 
+class TestGetScoredCandidatesAliasScoring:
+    def test_uses_alias_score_when_higher_than_label_score(self):
+        """When alias matches better than label, alias score is used.
+
+        Bug caught: AMD scores ~0.2 against 'Advanced Micro Devices' and never
+        resolves. With alias='AMD', max(0.2, 1.0) = 1.0 — passes threshold.
+        """
+        wd = [{"name": "Advanced Micro Devices", "alias": "AMD", "qid": "Q336958"}]
+        results = _get_scored_candidates("AMD", wd, [])
+        assert len(results) == 1
+        assert results[0]["score"] >= 0.7
+
+    def test_uses_label_score_when_no_alias_key(self):
+        """When no alias key present, label similarity is used (existing behaviour preserved).
+
+        Bug caught: alias change accidentally breaks normal label-based scoring.
+        """
+        wd = [{"name": "Apple Inc.", "qid": "Q312"}]  # no 'alias' key
+        results = _get_scored_candidates("Apple", wd, [])
+        assert len(results) == 1
+        assert results[0]["score"] >= 0.7
+
+    def test_alias_none_does_not_raise(self):
+        """alias=None in result dict must not crash similarity scoring.
+
+        Bug caught: wd.get('alias', '') returns None when key present-with-None
+        value; similarity(brand, None) raises TypeError.
+        Fix: use wd.get('alias') or '' to treat None same as absent.
+        """
+        wd = [{"name": "Bose Corporation", "alias": None, "qid": "Q174959"}]
+        results = _get_scored_candidates("Bose", wd, [])
+        assert len(results) == 1
+        # Must not raise; score should come from label path
+        assert results[0]["score"] > 0.0
+
+
 class TestMatchBrandToCorporationRegression:
     def test_returns_best_match_above_threshold(self):
         """Returns the highest-scoring candidate when score >= 0.7."""
