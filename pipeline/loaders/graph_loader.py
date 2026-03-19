@@ -85,7 +85,8 @@ def load_ownership_edges(session: Session, edges: list[dict]) -> int:
     query = """
     UNWIND $batch AS e
     MATCH (b:Brand {name: e.brand_name})
-    MATCH (c:Corporation {name: e.corporation_name})
+    MATCH (c:Corporation)
+    WHERE c.name = e.corporation_name OR e.corporation_name IN coalesce(c.aliases, [])
     MERGE (b)-[:OWNED_BY]->(c)
     """
     return _batch_load(session, query, edges)
@@ -99,8 +100,10 @@ def load_subsidiary_edges(session: Session, edges: list[dict]) -> int:
     """
     query = """
     UNWIND $batch AS e
-    MATCH (child:Corporation {name: e.child_name})
-    MATCH (parent:Corporation {name: e.parent_name})
+    MATCH (child:Corporation)
+    WHERE child.name = e.child_name OR e.child_name IN coalesce(child.aliases, [])
+    MATCH (parent:Corporation)
+    WHERE parent.name = e.parent_name OR e.parent_name IN coalesce(parent.aliases, [])
     MERGE (child)-[:SUBSIDIARY_OF]->(parent)
     """
     return _batch_load(session, query, edges)
@@ -267,7 +270,8 @@ def load_pac_edges(session: Session, edges: list[dict]) -> int:
     """
     query = """
     UNWIND $batch AS e
-    MATCH (corp:Corporation {name: e.corporation_name})
+    MATCH (corp:Corporation)
+    WHERE corp.name = e.corporation_name OR e.corporation_name IN coalesce(corp.aliases, [])
     MATCH (comm:Committee {fec_committee_id: e.committee_id})
     MERGE (corp)-[:OPERATES_PAC]->(comm)
     """

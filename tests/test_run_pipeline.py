@@ -639,3 +639,184 @@ class TestDiscoverBrandsForCorpus:
             "Discovered brands must pass aliases=None so existing aliases are preserved "
             "by the CASE guard in load_brands"
         )
+
+
+# ---------------------------------------------------------------------------
+# deduplicate_corporations_by_qid tests
+# ---------------------------------------------------------------------------
+
+from pipeline.run_pipeline import deduplicate_corporations_by_qid  # noqa: E402
+
+
+def _make_run_side_effect(*return_sequences):
+    """Build a side_effect list for session.run that returns different values per call.
+
+    Each arg is the return value for successive session.run calls.
+    Wraps non-list values as iterables so the function can do `for r in result`.
+    """
+    return iter(return_sequences)
+
+
+class TestDeduplicateCorporationsByQid:
+    def test_returns_zero_when_no_duplicates(self):
+        """Returns 0 and makes no writes when no QID has more than one Corporation.
+
+        Bug caught: function always calls DELETE even when no duplicates exist,
+        corrupting the graph on every run.
+        """
+        session = _make_session()
+        # First call (find groups) returns empty — no duplicates
+        session.run.return_value = []
+
+        result = deduplicate_corporations_by_qid(session)
+
+        assert result == 0
+        # Only the group-finding query should have been called
+        assert session.run.call_count == 1
+
+    def test_picks_canonical_by_relationship_count(self):
+        """Node with the most relationships becomes canonical; the other is deleted.
+
+        Bug caught: function picks alphabetically-first node as canonical regardless
+        of how many edges it has, causing the well-connected node to be deleted.
+        """
+        session = _make_session()
+
+        # Call 1: find groups — one group with 2 names
+        # Call 2: rank by rel_count — "Alphabet Inc." has 3, "Alphabet" has 1
+        # Calls 3-8: re-home edges (4 MERGE queries + 1 alias SET + 1 DELETE)
+        session.run.side_effect = [
+            [{"qid": "Q95", "names": ["Alphabet Inc.", "Alphabet"]}],  # groups query
+            [                                                             # ranked query
+                {"name": "Alphabet Inc.", "aliases": [], "rel_count": 3},
+                {"name": "Alphabet",      "aliases": [], "rel_count": 1},
+            ],
+            MagicMock(),  # re-home OWNED_BY
+            MagicMock(),  # re-home SUBSIDIARY_OF child
+            MagicMock(),  # re-home SUBSIDIARY_OF parent
+            MagicMock(),  # re-home OPERATES_PAC
+            MagicMock(),  # SET aliases
+            MagicMock(),  # DETACH DELETE
+        ]
+
+        deduplicate_corporations_by_qid(session)
+
+        # The DELETE call should be for "Alphabet" (the lower-rel-count node)
+        delete_call = session.run.call_args_list[7]
+        assert "Alphabet" in str(delete_call)
+        assert "Alphabet Inc." not in str(delete_call).replace("canonical_name", "")
+
+    def test_stores_duplicate_name_in_canonical_aliases(self):
+        """Duplicate node's name is added to canonical.aliases before deletion.
+
+        Bug caught: dedup deletes the duplicate but never stores its name as an
+        alias, so edge loaders can no longer find the canonical by the old name.
+        """
+        session = _make_session()
+
+        session.run.side_effect = [
+            [{"qid": "Q95", "names": ["Alphabet Inc.", "Alphabet"]}],
+            [
+                {"name": "Alphabet Inc.", "aliases": [], "rel_count": 3},
+                {"name": "Alphabet",      "aliases": [], "rel_count": 1},
+            ],
+            MagicMock(), MagicMock(), MagicMock(), MagicMock(),  # edge re-homes
+            MagicMock(),  # SET aliases — we'll inspect this call
+            MagicMock(),  # DETACH DELETE
+        ]
+
+        deduplicate_corporations_by_qid(session)
+
+        # The 7th call (index 6) is the SET aliases call
+        alias_call = session.run.call_args_list[6]
+        alias_kwargs = alias_call[1]  # keyword args
+        assert "Alphabet" in alias_kwargs.get("new_aliases", []), (
+            "Duplicate name 'Alphabet' must appear in new_aliases passed to SET aliases query"
+        )
+
+    def test_returns_count_of_removed_nodes(self):
+        """Return value equals the number of duplicate nodes removed.
+
+        Bug caught: function always returns None, making it impossible to log
+        or assert how many nodes were collapsed.
+        """
+        session = _make_session()
+
+        # Two separate QID groups, each with one duplicate
+        session.run.side_effect = [
+            [
+                {"qid": "Q95",  "names": ["Alphabet Inc.", "Alphabet"]},
+                {"qid": "Q312", "names": ["Apple Inc.", "Apple"]},
+            ],
+            # Ranked for Q95
+            [
+                {"name": "Alphabet Inc.", "aliases": [], "rel_count": 3},
+                {"name": "Alphabet",      "aliases": [], "rel_count": 1},
+            ],
+            MagicMock(), MagicMock(), MagicMock(), MagicMock(),  # edges Q95
+            MagicMock(), MagicMock(),  # aliases + delete Q95
+            # Ranked for Q312
+            [
+                {"name": "Apple Inc.", "aliases": [], "rel_count": 5},
+                {"name": "Apple",      "aliases": [], "rel_count": 2},
+            ],
+            MagicMock(), MagicMock(), MagicMock(), MagicMock(),  # edges Q312
+            MagicMock(), MagicMock(),  # aliases + delete Q312
+        ]
+
+        result = deduplicate_corporations_by_qid(session)
+
+        assert result == 2
+
+    def test_does_not_delete_canonical(self):
+        """Only the non-canonical (lower-rel-count) node is DETACH DELETEd.
+
+        Bug caught: both nodes deleted, leaving the QID entirely absent from graph.
+        """
+        session = _make_session()
+
+        session.run.side_effect = [
+            [{"qid": "Q95", "names": ["Alphabet Inc.", "Alphabet"]}],
+            [
+                {"name": "Alphabet Inc.", "aliases": [], "rel_count": 3},
+                {"name": "Alphabet",      "aliases": [], "rel_count": 1},
+            ],
+            MagicMock(), MagicMock(), MagicMock(), MagicMock(),
+            MagicMock(),  # SET aliases
+            MagicMock(),  # DETACH DELETE
+        ]
+
+        deduplicate_corporations_by_qid(session)
+
+        all_queries = [str(c) for c in session.run.call_args_list]
+        delete_queries = [q for q in all_queries if "DETACH DELETE" in q]
+        assert len(delete_queries) == 1, "Exactly one DETACH DELETE expected"
+        # The one DELETE must reference the dup name, not the canonical
+        assert "Alphabet Inc." not in delete_queries[0].replace("canonical_name", "")
+
+    def test_includes_dup_existing_aliases_in_transfer(self):
+        """If the duplicate already has aliases, those are transferred to canonical too.
+
+        Bug caught: only dup.name is transferred; dup.aliases are silently lost,
+        so edge loaders that previously resolved via dup's aliases now break.
+        """
+        session = _make_session()
+
+        session.run.side_effect = [
+            [{"qid": "Q95", "names": ["Alphabet Inc.", "Alphabet"]}],
+            [
+                {"name": "Alphabet Inc.", "aliases": [],                     "rel_count": 3},
+                {"name": "Alphabet",      "aliases": ["Alphabet Holdings"],  "rel_count": 1},
+            ],
+            MagicMock(), MagicMock(), MagicMock(), MagicMock(),
+            MagicMock(),  # SET aliases
+            MagicMock(),  # DETACH DELETE
+        ]
+
+        deduplicate_corporations_by_qid(session)
+
+        alias_call = session.run.call_args_list[6]
+        alias_kwargs = alias_call[1]
+        new_aliases = alias_kwargs.get("new_aliases", [])
+        assert "Alphabet" in new_aliases
+        assert "Alphabet Holdings" in new_aliases

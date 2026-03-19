@@ -226,6 +226,8 @@ def run_brands(
         discover_subsidiaries_for_corpus(session)
         logger.info("=== Brand Discovery ===")
         discover_brands_for_corpus(session)
+        logger.info("=== Corporation Deduplication ===")
+        deduplicate_corporations_by_qid(session)
 
 
 def enrich_corporation_qids(session, delay: float = 1.0) -> int:
@@ -353,6 +355,104 @@ def discover_brands_for_corpus(session, delay: float = 1.0) -> int:
         time.sleep(delay)
     logger.info("Discovered %d brands across %d corporations", total, len(corps))
     return total
+
+
+def deduplicate_corporations_by_qid(session) -> int:
+    """Merge Corporation nodes that share the same Wikidata QID.
+
+    Picks the node with the most relationships as canonical (ties broken by
+    name ascending). Stores all duplicate names — and their existing aliases —
+    in canonical.aliases. Re-homes OWNED_BY, SUBSIDIARY_OF (both directions),
+    and OPERATES_PAC edges from each duplicate to canonical, then DETACH DELETEs
+    the duplicate.
+
+    Idempotent: returns 0 when no duplicates exist.
+
+    Returns:
+        Number of duplicate Corporation nodes removed.
+    """
+    groups_result = session.run("""
+        MATCH (c:Corporation)
+        WHERE c.qid IS NOT NULL
+        WITH c.qid AS qid, collect(c.name) AS names
+        WHERE size(names) > 1
+        RETURN qid, names
+    """)
+    groups = [(r["qid"], r["names"]) for r in groups_result]
+
+    total_removed = 0
+    for qid, _ in groups:
+        ranked = list(session.run("""
+            MATCH (c:Corporation {qid: $qid})
+            RETURN c.name AS name,
+                   coalesce(c.aliases, []) AS aliases,
+                   size([(c)-[]-() | 1]) AS rel_count
+            ORDER BY rel_count DESC, c.name ASC
+        """, qid=qid))
+
+        if len(ranked) < 2:
+            continue
+
+        canonical_name = ranked[0]["name"]
+        for dup in ranked[1:]:
+            dup_name = dup["name"]
+            dup_aliases = dup["aliases"]
+
+            # Re-home OWNED_BY (Brand → dup → canonical)
+            session.run("""
+                MATCH (b:Brand)-[:OWNED_BY]->(dup:Corporation {name: $dup_name})
+                MATCH (canonical:Corporation {name: $canonical_name})
+                MERGE (b)-[:OWNED_BY]->(canonical)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Re-home SUBSIDIARY_OF where dup is child
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})-[:SUBSIDIARY_OF]->(parent:Corporation)
+                MATCH (canonical:Corporation {name: $canonical_name})
+                WHERE canonical <> parent
+                MERGE (canonical)-[:SUBSIDIARY_OF]->(parent)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Re-home SUBSIDIARY_OF where dup is parent
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})<-[:SUBSIDIARY_OF]-(child:Corporation)
+                MATCH (canonical:Corporation {name: $canonical_name})
+                WHERE canonical <> child
+                MERGE (child)-[:SUBSIDIARY_OF]->(canonical)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Re-home OPERATES_PAC
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})-[:OPERATES_PAC]->(cmte:Committee)
+                MATCH (canonical:Corporation {name: $canonical_name})
+                MERGE (canonical)-[:OPERATES_PAC]->(cmte)
+            """, dup_name=dup_name, canonical_name=canonical_name)
+
+            # Accumulate dup name + dup aliases onto canonical (skip canonical.name itself)
+            new_aliases = [dup_name] + dup_aliases
+            session.run("""
+                MATCH (canonical:Corporation {name: $canonical_name})
+                SET canonical.aliases = reduce(
+                    acc = coalesce(canonical.aliases, []),
+                    x IN $new_aliases |
+                    CASE WHEN x IN acc OR x = canonical.name THEN acc ELSE acc + [x] END
+                )
+            """, canonical_name=canonical_name, new_aliases=new_aliases)
+
+            # Delete duplicate
+            session.run("""
+                MATCH (dup:Corporation {name: $dup_name})
+                DETACH DELETE dup
+            """, dup_name=dup_name)
+
+            logger.info(
+                "Merged duplicate Corporation '%s' -> '%s' (QID: %s)",
+                dup_name, canonical_name, qid,
+            )
+            total_removed += 1
+
+    logger.info("Deduplicated %d Corporation nodes by QID", total_removed)
+    return total_removed
 
 
 def run_fec(session, force: bool = False) -> None:
