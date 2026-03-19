@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 
 from pipeline.loaders.graph_loader import (
+    load_brands,
     load_candidate_committee_linkage,
     load_committee_contributions,
     load_corporations,
@@ -178,4 +179,43 @@ def test_load_corporations_preserves_existing_qid_when_new_dict_has_none():
     query_called = session.run.call_args_list[0][0][0]
     assert "ELSE corp.qid" in query_called, (
         "CASE must end with ELSE corp.qid to preserve existing qid when incoming dict has none"
+    )
+
+
+# ---------------------------------------------------------------------------
+# load_brands — aliases CASE guard tests
+# ---------------------------------------------------------------------------
+
+
+def test_load_brands_writes_aliases_when_provided():
+    """load_brands stores aliases when the incoming dict provides them.
+
+    Bug caught: CASE guard must not block aliases from being written when
+    caller explicitly passes a non-None list (e.g. ["alias1"]).
+    """
+    session = _make_session()
+
+    load_brands(session, [{"name": "Nike", "amazon_slug": "nike", "aliases": ["Nike Inc."]}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "b.aliases IS NOT NULL" in query_called, (
+        "CASE guard must check b.aliases IS NOT NULL so provided aliases are written"
+    )
+
+
+def test_load_brands_preserves_existing_aliases_when_none_passed():
+    """load_brands does not overwrite existing aliases when incoming dict passes None.
+
+    Bug caught: without CASE guard, `SET brand.aliases = b.aliases` overwrites
+    existing aliases with None/[] on every re-run, destroying manually set alias data.
+    The guard ensures: if b.aliases IS NULL, keep brand.aliases (existing value).
+    """
+    session = _make_session()
+
+    load_brands(session, [{"name": "Nike", "amazon_slug": "nike", "aliases": None}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "ELSE brand.aliases" in query_called, (
+        "CASE must end with ELSE brand.aliases to preserve existing aliases "
+        "when incoming dict passes None"
     )

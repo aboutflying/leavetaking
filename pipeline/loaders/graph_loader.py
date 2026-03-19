@@ -51,7 +51,7 @@ def load_brands(session: Session, brands: list[dict]) -> int:
     UNWIND $batch AS b
     MERGE (brand:Brand {name: b.name})
     SET brand.amazon_slug = b.amazon_slug,
-        brand.aliases = b.aliases
+        brand.aliases = CASE WHEN b.aliases IS NOT NULL THEN b.aliases ELSE brand.aliases END
     """
     return _batch_load(session, query, brands)
 

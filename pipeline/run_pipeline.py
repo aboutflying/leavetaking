@@ -16,7 +16,12 @@ from pipeline.fetchers.fec import (
     parse_committee_master,
 )
 from pipeline.fetchers.scorecards import load_all_scorecards
-from pipeline.fetchers.wikidata import _search_entities, get_ownership_chain, get_subsidiaries
+from pipeline.fetchers.wikidata import (
+    _search_entities,
+    discover_brands_for_corporation,
+    get_ownership_chain,
+    get_subsidiaries,
+)
 from pipeline.loaders.graph_loader import (
     apply_schema,
     fetch_corporation_names,
@@ -219,6 +224,8 @@ def run_brands(
         enrich_corporation_qids(session)
         logger.info("=== Subsidiary Discovery ===")
         discover_subsidiaries_for_corpus(session)
+        logger.info("=== Brand Discovery ===")
+        discover_brands_for_corpus(session)
 
 
 def enrich_corporation_qids(session, delay: float = 1.0) -> int:
@@ -299,6 +306,52 @@ def discover_subsidiaries_for_corpus(session, delay: float = 1.0) -> int:
             total += len(new_corps)
         time.sleep(delay)
     logger.info("Discovered %d subsidiaries across %d corporations", total, len(corps))
+    return total
+
+
+def discover_brands_for_corpus(session, delay: float = 1.0) -> int:
+    """Discover consumer brands owned by Corporation nodes that have a Wikidata QID.
+
+    Uses reverse P749 (parent organization) filtered to non-Q4830453 entities.
+    The FILTER NOT EXISTS { P31/P279* Q4830453 } pattern can be slow on Wikidata
+    for large corporations — expect this phase to run 2-5 minutes for a full corpus.
+
+    Returns:
+        Total number of Brand nodes loaded.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) WHERE c.qid IS NOT NULL RETURN c.name AS name, c.qid AS qid"
+    )
+    corps = [(r["name"], r["qid"]) for r in result if r["qid"]]
+    total = 0
+    for corp_name, qid in corps:
+        try:
+            brands = discover_brands_for_corporation(qid)
+        except Exception:
+            logger.exception(
+                "discover_brands_for_corporation failed for %s (%s)", corp_name, qid
+            )
+            time.sleep(delay)
+            continue
+        new_brands = []
+        new_edges = []
+        for b in brands:
+            if not b.get("name"):
+                continue
+            new_brands.append(
+                {
+                    "name": b["name"],
+                    "amazon_slug": b["name"].lower().replace(" ", "-"),
+                    "aliases": None,  # preserve any existing aliases via CASE guard in load_brands
+                }
+            )
+            new_edges.append({"brand_name": b["name"], "corporation_name": corp_name})
+        if new_brands:
+            load_brands(session, new_brands)
+            load_ownership_edges(session, new_edges)
+            total += len(new_brands)
+        time.sleep(delay)
+    logger.info("Discovered %d brands across %d corporations", total, len(corps))
     return total
 
 

@@ -175,6 +175,65 @@ def get_subsidiaries(corporation_qid: str) -> list[dict]:
     ]
 
 
+_BRAND_DISCOVERY_LIMIT = 200
+
+
+def discover_brands_for_corporation(corp_qid: str) -> list[dict]:
+    """Find consumer brands owned by a corporation via Wikidata reverse P749.
+
+    Returns entities that are children of corp_qid via P749 (parent org) but
+    are NOT instances of Q4830453 (business enterprise) — i.e. consumer brand
+    entities rather than subsidiary corporations (which are handled separately
+    by discover_subsidiaries_for_corpus).
+
+    Note: a returned entity may already exist as a Corporation node in Neo4j
+    from subsidiary discovery. This is intentional — Neo4j nodes can have both
+    Brand and Corporation labels for the same legal entity.
+
+    Args:
+        corp_qid: Wikidata entity ID (e.g. 'Q95'). Must start with 'Q'.
+
+    Returns:
+        List of {"name": str, "qid": str} dicts for brand entities.
+    """
+    if not corp_qid or not corp_qid.startswith("Q"):
+        return []
+
+    sparql = """
+    SELECT ?item ?itemLabel WHERE {
+      ?item wdt:P749 wd:%s .
+      FILTER NOT EXISTS { ?item wdt:P31/wdt:P279* wd:Q4830453 }
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
+    }
+    LIMIT %d
+    """ % (
+        corp_qid,
+        _BRAND_DISCOVERY_LIMIT,
+    )
+
+    results = query_sparql(sparql)
+
+    if len(results) >= _BRAND_DISCOVERY_LIMIT:
+        logger.warning(
+            "discover_brands_for_corporation(%s): result count hit LIMIT %d — results may be truncated",
+            corp_qid,
+            _BRAND_DISCOVERY_LIMIT,
+        )
+
+    brands = []
+    for r in results:
+        name = r.get("itemLabel", {}).get("value", "")
+        if not name:
+            continue
+        brands.append(
+            {
+                "name": name,
+                "qid": _qid_from_uri(r.get("item", {}).get("value", "")),
+            }
+        )
+    return brands
+
+
 def get_ownership_chain(entity_qid: str, max_depth: int = 10) -> list[dict]:
     """Traverse the ownership chain upward from an entity.
 

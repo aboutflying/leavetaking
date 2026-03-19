@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, call, patch
 
 import requests
 
-from pipeline.fetchers.wikidata import _search_entities, find_corporation, query_sparql
+from pipeline.fetchers.wikidata import (
+    _search_entities,
+    discover_brands_for_corporation,
+    find_corporation,
+    query_sparql,
+)
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -394,3 +399,114 @@ class TestFindCorporationAliasThreading:
 
         assert len(results) == 1
         assert "alias" not in results[0]
+
+
+# ---------------------------------------------------------------------------
+# discover_brands_for_corporation tests
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverBrandsForCorporation:
+    def test_returns_brand_names_for_known_qid(self):
+        """Returns list of {name, qid} dicts for entities linked via reverse P749.
+
+        Bug caught: function fetches SPARQL results but fails to extract
+        name/qid from bindings, returning empty list for all inputs.
+        """
+        binding = {
+            "item": {"type": "uri", "value": "http://www.wikidata.org/entity/Q866"},
+            "itemLabel": {"type": "literal", "value": "YouTube"},
+        }
+        with patch("pipeline.fetchers.wikidata.query_sparql", return_value=[binding]):
+            results = discover_brands_for_corporation("Q95")
+
+        assert results == [{"name": "YouTube", "qid": "Q866"}]
+
+    def test_sparql_contains_q4830453_filter(self):
+        """SPARQL query must include FILTER NOT EXISTS for Q4830453 (business enterprise).
+
+        The filter runs server-side so we can only verify the query string is
+        correctly constructed. Without this filter, subsidiary Corporation nodes
+        would leak into brand results, duplicating the subsidiary discovery work.
+        """
+        captured = {}
+
+        def capture_sparql(sparql):
+            captured["query"] = sparql
+            return []
+
+        with patch("pipeline.fetchers.wikidata.query_sparql", side_effect=capture_sparql):
+            discover_brands_for_corporation("Q95")
+
+        assert "Q4830453" in captured["query"], (
+            "SPARQL query must filter out Q4830453 (business enterprise) instances "
+            "to avoid returning subsidiary corporations"
+        )
+
+    def test_returns_empty_list_when_no_results(self):
+        """Returns [] without error when SPARQL returns no bindings.
+
+        Bug caught: function crashes (IndexError) when iterating empty results.
+        """
+        with patch("pipeline.fetchers.wikidata.query_sparql", return_value=[]):
+            results = discover_brands_for_corporation("Q95")
+
+        assert results == []
+
+    def test_skips_binding_with_missing_label(self):
+        """Bindings with missing or empty itemLabel are excluded from results.
+
+        Bug caught: Wikidata sometimes returns entities with no English label.
+        Storing empty-name brands pollutes the graph with useless Brand nodes.
+        """
+        binding = {
+            "item": {"type": "uri", "value": "http://www.wikidata.org/entity/Q999"},
+            # no itemLabel key
+        }
+        with patch("pipeline.fetchers.wikidata.query_sparql", return_value=[binding]):
+            results = discover_brands_for_corporation("Q95")
+
+        assert results == []
+
+    def test_warns_when_result_count_hits_limit(self):
+        """Emits logger.warning when results hit the LIMIT threshold.
+
+        Bug caught: silent truncation — corps with 200+ child entities get
+        partial results with no indication that data is missing.
+        """
+        from pipeline.fetchers.wikidata import _BRAND_DISCOVERY_LIMIT
+
+        bindings = [
+            {
+                "item": {"type": "uri", "value": f"http://www.wikidata.org/entity/Q{i}"},
+                "itemLabel": {"type": "literal", "value": f"Brand{i}"},
+            }
+            for i in range(_BRAND_DISCOVERY_LIMIT)
+        ]
+
+        with (
+            patch("pipeline.fetchers.wikidata.query_sparql", return_value=bindings),
+            patch("pipeline.fetchers.wikidata.logger") as mock_logger,
+        ):
+            discover_brands_for_corporation("Q95")
+
+        mock_logger.warning.assert_called_once()
+        warning_msg = mock_logger.warning.call_args[0][0]
+        assert "LIMIT" in warning_msg or "truncat" in warning_msg.lower()
+
+    def test_rejects_invalid_qid_format(self):
+        """Returns [] immediately for QIDs that do not start with Q.
+
+        Bug caught: malformed QID (e.g. a URI fragment or empty string) is
+        interpolated directly into SPARQL, producing a syntax error query that
+        causes Wikidata to return HTTP 400/500.
+        """
+        with patch("pipeline.fetchers.wikidata.query_sparql") as mock_sparql:
+            result_empty = discover_brands_for_corporation("")
+            result_invalid = discover_brands_for_corporation("invalid-no-q")
+            result_none = discover_brands_for_corporation(None)
+
+        mock_sparql.assert_not_called()
+        assert result_empty == []
+        assert result_invalid == []
+        assert result_none == []

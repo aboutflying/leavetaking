@@ -517,3 +517,125 @@ class TestDiscoverSubsidiariesForCorpus:
             result = discover_subsidiaries_for_corpus(session, delay=0)
 
         assert result == 2
+
+
+# ---------------------------------------------------------------------------
+# discover_brands_for_corpus tests
+# ---------------------------------------------------------------------------
+
+from pipeline.run_pipeline import discover_brands_for_corpus  # noqa: E402
+
+
+class TestDiscoverBrandsForCorpus:
+    def test_skips_corporations_without_qid(self):
+        """discover_brands_for_corporation must not be called for Corps with no QID.
+
+        Bug caught: calling discover_brands_for_corporation(None) sends invalid
+        SPARQL and raises or returns garbage.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Unknown Corp", "qid": None}]
+
+        with patch(f"{_PATCH_BASE}.discover_brands_for_corporation") as mock_discover:
+            discover_brands_for_corpus(session, delay=0)
+
+        mock_discover.assert_not_called()
+
+    def test_creates_brand_node_and_owned_by_edge(self):
+        """Each brand returned by discover_brands_for_corporation is loaded as Brand + OWNED_BY edge.
+
+        Bug caught: function fetches brands but never calls load_brands or
+        load_ownership_edges, leaving the graph empty.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Alphabet Inc.", "qid": "Q95"}]
+
+        with (
+            patch(
+                f"{_PATCH_BASE}.discover_brands_for_corporation",
+                return_value=[{"name": "YouTube", "qid": "Q866"}],
+            ),
+            patch(f"{_PATCH_BASE}.load_brands") as mock_load_brands,
+            patch(f"{_PATCH_BASE}.load_ownership_edges") as mock_load_edges,
+        ):
+            discover_brands_for_corpus(session, delay=0)
+
+        brand_names = [b["name"] for b in mock_load_brands.call_args[0][1]]
+        assert "YouTube" in brand_names
+
+        edges = mock_load_edges.call_args[0][1]
+        assert {"brand_name": "YouTube", "corporation_name": "Alphabet Inc."} in edges
+
+    def test_handles_discover_brands_exception_and_continues(self):
+        """Exception from discover_brands_for_corporation does not abort the loop.
+
+        Bug caught: unhandled exception stops corpus scan — remaining corporations
+        get no brand discovery when one Wikidata call fails.
+        """
+        session = _make_session()
+        session.run.return_value = [
+            {"name": "BadCorp", "qid": "Q1"},
+            {"name": "Alphabet Inc.", "qid": "Q95"},
+        ]
+
+        with (
+            patch(f"{_PATCH_BASE}.discover_brands_for_corporation") as mock_discover,
+            patch(f"{_PATCH_BASE}.load_brands") as mock_load_brands,
+            patch(f"{_PATCH_BASE}.load_ownership_edges"),
+        ):
+            mock_discover.side_effect = [
+                Exception("SPARQL timeout"),
+                [{"name": "YouTube", "qid": "Q866"}],
+            ]
+            discover_brands_for_corpus(session, delay=0)
+
+        mock_load_brands.assert_called_once()
+        brand_names = [b["name"] for b in mock_load_brands.call_args[0][1]]
+        assert "YouTube" in brand_names
+
+    def test_skips_brands_with_empty_name(self):
+        """Brands with empty name from discover_brands_for_corporation are not loaded.
+
+        Bug caught: empty-name Brand nodes pollute the graph with useless nodes
+        that cannot be matched to any Amazon product.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Alphabet Inc.", "qid": "Q95"}]
+
+        with (
+            patch(
+                f"{_PATCH_BASE}.discover_brands_for_corporation",
+                return_value=[{"name": "", "qid": "Q999"}],
+            ),
+            patch(f"{_PATCH_BASE}.load_brands") as mock_load_brands,
+        ):
+            discover_brands_for_corpus(session, delay=0)
+
+        mock_load_brands.assert_not_called()
+
+    def test_discovered_brands_pass_aliases_none(self):
+        """Brands loaded by discover_brands_for_corpus must pass aliases=None, not [].
+
+        Bug caught: passing aliases=[] triggers load_brands to overwrite existing
+        aliases (if any) with an empty list. Passing None preserves existing aliases
+        via the CASE guard added to load_brands.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Alphabet Inc.", "qid": "Q95"}]
+
+        with (
+            patch(
+                f"{_PATCH_BASE}.discover_brands_for_corporation",
+                return_value=[{"name": "YouTube", "qid": "Q866"}],
+            ),
+            patch(f"{_PATCH_BASE}.load_brands") as mock_load_brands,
+            patch(f"{_PATCH_BASE}.load_ownership_edges"),
+        ):
+            discover_brands_for_corpus(session, delay=0)
+
+        loaded_brands = mock_load_brands.call_args[0][1]
+        youtube_brand = next(b for b in loaded_brands if b["name"] == "YouTube")
+        assert youtube_brand["aliases"] is None, (
+            "Discovered brands must pass aliases=None so existing aliases are preserved "
+            "by the CASE guard in load_brands"
+        )
