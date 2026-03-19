@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
+from neo4j import AsyncDriver
 
-from pipeline.processors.score_computation import (
-    query_brand_scores_from_graph,
-    search_brand_scores_from_graph,
-)
+from api.deps import get_driver
+from api.queries.scores import query_brand_scores, search_brand_scores
 
 router = APIRouter(tags=["scores"])
 
 
 @router.get("/scores/{brand_name}")
 async def get_brand_scores(
-    request: Request,
     brand_name: str,
+    driver: AsyncDriver = Depends(get_driver),
     issues: list[str] | None = Query(default=None, description="Filter by issue names"),
     scorecards: list[str] | None = Query(default=None, description="Filter by scorecard orgs"),
 ):
     """Get pre-computed issue scores for a brand."""
-    driver = request.app.state.neo4j_driver
-    with driver.session() as session:
-        scores = query_brand_scores_from_graph(session, brand_name, issues=issues, scorecards=scorecards)
+    async with driver.session() as session:
+        scores = await query_brand_scores(session, brand_name, issues=issues, scorecards=scorecards)
 
     if not scores:
         raise HTTPException(status_code=404, detail=f"No scores found for brand: {brand_name}")
@@ -32,14 +30,13 @@ async def get_brand_scores(
 
 @router.get("/scores")
 async def search_scores(
-    request: Request,
+    driver: AsyncDriver = Depends(get_driver),
     q: str = Query(description="Brand name search query"),
     issues: list[str] | None = Query(default=None, description="Filter by issue names"),
     scorecards: list[str] | None = Query(default=None, description="Filter by scorecard orgs"),
 ):
     """Search scores by brand name (substring match)."""
-    driver = request.app.state.neo4j_driver
-    with driver.session() as session:
-        results = search_brand_scores_from_graph(session, q, issues=issues, scorecards=scorecards)
+    async with driver.session() as session:
+        results = await search_brand_scores(session, q, issues=issues, scorecards=scorecards)
 
     return {"results": results, "count": len(results)}

@@ -6,17 +6,24 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from neo4j import AsyncGraphDatabase
 
 from api.routes import config, graph_trail, scores
-from pipeline.config import get_neo4j_driver
+from pipeline.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage Neo4j driver lifecycle."""
-    app.state.neo4j_driver = get_neo4j_driver()
-    yield
-    app.state.neo4j_driver.close()
+    driver = AsyncGraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password),
+    )
+    app.state.neo4j_driver = driver
+    try:
+        yield
+    finally:
+        await driver.close()
 
 
 app = FastAPI(
