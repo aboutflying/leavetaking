@@ -205,11 +205,11 @@ political-purchaser/
 
 ## MVP Milestones
 
-1. ✅ Neo4j running in Docker, schema constraints applied, seed Issue/Scorecard nodes loaded
-2. ⬜ Brand resolution pipeline: top 500 Amazon brands mapped to corporate parents via Wikidata
-3. ✅ FEC Tier 1 pipeline: PAC contributions (cm, cn, pas2, ccl) loaded with streaming + filters
+1. ✅ Neo4j running in Docker, schema constraints applied, seed Issue/Scorecard nodes loaded; Fortune 100 Corporation nodes seeded
+2. ✅ Brand resolution pipeline: top 50 Amazon brands mapped to corporate parents via Wikidata/OpenCorporates, with incremental caching (`data/brand_resolutions.json`)
+3. ✅ FEC Tier 1 pipeline: PAC contributions (cm, cn, pas2, ccl) loaded with streaming + filters; incremental per-cycle loading with `FECCycleLoad` marker nodes; provisional Candidate nodes for scorecard-only records; `OPERATES_PAC` edges linking Corporation → Committee
 4. ⬜ FEC Tier 2 pipeline: executive individual donations (indiv) linked via Person nodes
-5. ⬜ Scorecard pipeline: at least 3 scorecards loaded (ACLU, LCV, one conservative baseline)
+5. ⬜ Scorecard pipeline: at least 3 scorecards loaded (LCV implemented; ACLU/EFF use JsonFileFetcher awaiting manual data files)
 6. ⬜ Pre-computed score export working
 7. ⬜ Extension shell: badges rendering on Amazon search results from cached scores
 8. ⬜ Graph trail API endpoint + visualization in extension detail view

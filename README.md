@@ -51,14 +51,15 @@ docker compose up -d neo4j
 # Install Python dependencies
 pip install -e ".[dev]"
 
-# Apply schema and seed data
-python -m pipeline.run_pipeline --steps schema
+# Run the full pipeline (schema + brands + FEC + scorecards + scores)
+python -m pipeline.run_pipeline
 
-# Bootstrap brand → corporation mappings
-python scripts/bootstrap_brands.py
-
-# Run the full pipeline (FEC data + scorecards + score computation)
-python -m pipeline.run_pipeline --steps fec scorecards scores
+# Or run individual steps in order:
+python -m pipeline.run_pipeline --steps schema      # Apply constraints, seed issues + Fortune 100 corps
+python -m pipeline.run_pipeline --steps brands      # Resolve brands → corporations (cached)
+python -m pipeline.run_pipeline --steps fec         # Load FEC bulk data (skips already-loaded cycles)
+python -m pipeline.run_pipeline --steps scorecards  # Load legislative scorecards
+python -m pipeline.run_pipeline --steps scores      # Pre-compute and export scores
 
 # Start the API
 uvicorn api.main:app --reload
@@ -73,17 +74,21 @@ uvicorn api.main:app --reload
 
 ## Pipeline Steps
 
-Run individual steps or all at once:
+Run all steps or individual steps:
 
 ```bash
-# All steps
+# All steps (default)
 python -m pipeline.run_pipeline
 
-# Individual steps
-python -m pipeline.run_pipeline --steps schema       # Apply Neo4j constraints + seed data
-python -m pipeline.run_pipeline --steps fec           # Load FEC campaign finance data
-python -m pipeline.run_pipeline --steps scorecards    # Load legislative scorecards
-python -m pipeline.run_pipeline --steps scores        # Pre-compute and export scores
+# Individual steps (run in order)
+python -m pipeline.run_pipeline --steps schema       # Apply Neo4j constraints + seed Fortune 100 corps
+python -m pipeline.run_pipeline --steps brands       # Resolve brands → corporations via Wikidata/OpenCorporates
+python -m pipeline.run_pipeline --steps fec          # Load FEC campaign finance data (incremental)
+python -m pipeline.run_pipeline --steps scorecards   # Load legislative scorecards
+python -m pipeline.run_pipeline --steps scores       # Pre-compute and export scores
+
+# Force-reload FEC data even if already loaded
+python -m pipeline.run_pipeline --steps fec --force
 ```
 
 ## API Endpoints
@@ -103,13 +108,13 @@ python -m pipeline.run_pipeline --steps scores        # Pre-compute and export s
 
 The system uses legislative scorecards from organizations across the political spectrum. Users choose which scorecards they trust:
 
-| Scorecard | Issue | Perspective |
-|-----------|-------|-------------|
-| ACLU | Civil Liberties | Progressive |
-| League of Conservation Voters | Environment | Progressive |
-| Human Rights Campaign | LGBTQ+ Rights | Progressive |
-| AFL-CIO | Labor | Progressive |
-| EFF | Digital Rights | Progressive |
+| Scorecard | Issue | Status |
+|-----------|-------|--------|
+| League of Conservation Voters | Environment | Implemented (CSV fetcher) |
+| ACLU | Civil Liberties | Pending (manual JSON file required) |
+| EFF | Digital Rights | Pending (manual JSON file required) |
+| Human Rights Campaign | LGBTQ+ Rights | Planned |
+| AFL-CIO | Labor | Planned |
 
 This is how the tool stays politically neutral — it surfaces data, and users decide what matters.
 
