@@ -106,6 +106,100 @@ def test_run_fec_applies_transaction_type_filter(fec_patches):
     )
 
 
+class TestRunBrands:
+    """Tests for run_brands() — brand resolution + Neo4j loading."""
+
+    def _make_brands_patches(self):
+        return (
+            patch(f"{_PATCH_BASE}.resolve_all_brands"),
+            patch(f"{_PATCH_BASE}.get_ownership_chain", return_value=[]),
+            patch(f"{_PATCH_BASE}.load_brands"),
+            patch(f"{_PATCH_BASE}.load_corporations"),
+            patch(f"{_PATCH_BASE}.load_ownership_edges"),
+            patch(f"{_PATCH_BASE}.load_subsidiary_edges"),
+            patch(f"{_PATCH_BASE}.settings"),
+        )
+
+    def test_run_brands_calls_resolve_all_brands_with_cache_path_in_data_dir(self):
+        """run_brands must pass a cache path inside settings.data_dir.
+
+        Bug caught: wrong cache path means the pipeline never finds previously
+        cached resolutions, re-querying Wikidata on every run.
+        """
+        from pipeline.run_pipeline import run_brands
+
+        with (
+            patch(f"{_PATCH_BASE}.resolve_all_brands", return_value={}) as mock_resolve,
+            patch(f"{_PATCH_BASE}.get_ownership_chain", return_value=[]),
+            patch(f"{_PATCH_BASE}.load_brands"),
+            patch(f"{_PATCH_BASE}.load_corporations"),
+            patch(f"{_PATCH_BASE}.load_ownership_edges"),
+            patch(f"{_PATCH_BASE}.load_subsidiary_edges"),
+            patch(f"{_PATCH_BASE}.settings") as mock_settings,
+        ):
+            mock_settings.data_dir = Path("/fake/data")
+            run_brands(_make_session())
+
+        mock_resolve.assert_called_once()
+        cache_path = mock_resolve.call_args[0][1]
+        assert str(cache_path).endswith("brand_resolutions.json"), (
+            f"Expected cache path ending in brand_resolutions.json, got: {cache_path}"
+        )
+        assert str(cache_path).startswith("/fake/data"), (
+            f"Cache path must be inside settings.data_dir, got: {cache_path}"
+        )
+
+    def test_run_brands_loads_corporations_and_ownership_edges(self):
+        """Resolved brands must be loaded into Neo4j as Corporation + OWNED_BY edges.
+
+        Bug caught: brand resolution succeeds but no Neo4j writes happen,
+        leaving the graph empty and PAC linkage unable to find any corporations.
+        """
+        from pipeline.run_pipeline import run_brands
+
+        with (
+            patch(f"{_PATCH_BASE}.resolve_all_brands",
+                  return_value={"Apple": {"name": "Apple Inc.", "qid": "Q312", "ticker": "AAPL"}}),
+            patch(f"{_PATCH_BASE}.get_ownership_chain", return_value=[]),
+            patch(f"{_PATCH_BASE}.load_brands"),
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load_corps,
+            patch(f"{_PATCH_BASE}.load_ownership_edges") as mock_load_own,
+            patch(f"{_PATCH_BASE}.load_subsidiary_edges"),
+            patch(f"{_PATCH_BASE}.settings") as mock_settings,
+        ):
+            mock_settings.data_dir = Path("/fake/data")
+            run_brands(_make_session())
+
+        corp_names = [c["name"] for c in mock_load_corps.call_args[0][1]]
+        assert "Apple Inc." in corp_names
+
+        own_edges = mock_load_own.call_args[0][1]
+        assert {"brand_name": "Apple", "corporation_name": "Apple Inc."} in own_edges
+
+    def test_run_brands_skips_ownership_chain_when_no_qid(self):
+        """get_ownership_chain must not be called when the resolution has no QID.
+
+        Bug caught: calling get_ownership_chain(None) or get_ownership_chain('')
+        sends a malformed Wikidata query and raises or returns garbage data.
+        """
+        from pipeline.run_pipeline import run_brands
+
+        with (
+            patch(f"{_PATCH_BASE}.resolve_all_brands",
+                  return_value={"X": {"name": "X Corp"}}),  # no 'qid' key
+            patch(f"{_PATCH_BASE}.get_ownership_chain") as mock_chain,
+            patch(f"{_PATCH_BASE}.load_brands"),
+            patch(f"{_PATCH_BASE}.load_corporations"),
+            patch(f"{_PATCH_BASE}.load_ownership_edges"),
+            patch(f"{_PATCH_BASE}.load_subsidiary_edges"),
+            patch(f"{_PATCH_BASE}.settings") as mock_settings,
+        ):
+            mock_settings.data_dir = Path("/fake/data")
+            run_brands(_make_session())
+
+        mock_chain.assert_not_called()
+
+
 def test_run_fec_passes_known_cand_ids_to_linkage_loader(fec_patches):
     """run_fec must pass known_cand_ids (not None) to load_candidate_committee_linkage."""
     from pipeline.run_pipeline import run_fec

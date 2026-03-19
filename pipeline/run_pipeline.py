@@ -15,18 +15,27 @@ from pipeline.fetchers.fec import (
     parse_committee_master,
 )
 from pipeline.fetchers.scorecards import load_all_scorecards
+from pipeline.fetchers.wikidata import get_ownership_chain
 from pipeline.loaders.graph_loader import (
     apply_schema,
+    fetch_corporation_names,
+    load_brands,
     load_candidate_committee_linkage,
     load_candidates,
     load_committee_contributions,
     load_committees,
+    load_corporations,
+    load_ownership_edges,
+    load_pac_edges,
     load_scorecard_ratings,
     load_seed_data,
+    load_subsidiary_edges,
 )
+from pipeline.processors.brand_resolver import resolve_all_brands
 from pipeline.processors.entity_resolution import (
     filter_corporate_pacs,
     filter_supported_contributions,
+    resolve_pac_to_corporation,
 )
 from pipeline.processors.score_computation import compute_all_scores, export_scores
 from pipeline.processors.scorecard_resolver import build_candidate_index, resolve_candidates
@@ -40,6 +49,20 @@ logger = logging.getLogger(__name__)
 SCHEMA_PATH = Path("schema/constraints.cypher")
 SEED_PATH = Path("schema/seed_issues.cypher")
 
+# Top Amazon brands for MVP. In production these would be scraped/crawled.
+TOP_BRANDS = [
+    "Amazon Basics", "Apple", "Samsung", "Sony", "LG", "Bose",
+    "Nike", "Adidas", "Under Armour", "Levi's", "Hasbro", "Mattel",
+    "Procter & Gamble", "Unilever", "Johnson & Johnson", "Colgate-Palmolive",
+    "Nestle", "PepsiCo", "Coca-Cola", "General Mills", "Kellogg's",
+    "Kraft Heinz", "Mars", "Mondelez", "Hershey", "Tyson Foods",
+    "3M", "Honeywell", "General Electric", "Whirlpool", "Black & Decker",
+    "Duracell", "Energizer", "Clorox", "SC Johnson", "Church & Dwight",
+    "Estee Lauder", "L'Oreal", "Revlon", "Maybelline",
+    "Microsoft", "Google", "Intel", "AMD", "NVIDIA",
+    "HP", "Dell", "Lenovo", "ASUS", "Acer",
+]
+
 
 def run_schema(session) -> None:
     """Step 0: Apply schema constraints and seed data."""
@@ -47,6 +70,75 @@ def run_schema(session) -> None:
     apply_schema(session, SCHEMA_PATH)
     logger.info("=== Loading seed data ===")
     load_seed_data(session, SEED_PATH)
+
+
+def run_brands(session) -> None:
+    """Step 1: Resolve brand names to corporations and load into the graph.
+
+    Must run before run_fec so that Corporation nodes exist for PAC linkage.
+    Results are cached to settings.data_dir/brand_resolutions.json — re-runs
+    skip already-resolved brands.
+    """
+    logger.info("=== Brand Resolution Pipeline ===")
+    cache_path = settings.data_dir / "brand_resolutions.json"
+    resolutions = resolve_all_brands(TOP_BRANDS, cache_path)
+
+    brands = [
+        {"name": name, "amazon_slug": name.lower().replace(" ", "-"), "aliases": []}
+        for name in TOP_BRANDS
+    ]
+    load_brands(session, brands)
+
+    corporations: list[dict] = []
+    ownership_edges: list[dict] = []
+    subsidiary_edges: list[dict] = []
+
+    for brand_name, match in resolutions.items():
+        corp_name = match["name"]
+        corporations.append({
+            "name": corp_name,
+            "ticker": match.get("ticker"),
+            "cik": None,
+            "jurisdiction": match.get("jurisdiction"),
+            "oc_id": str(match["oc_id"]) if match.get("oc_id") else None,
+        })
+        ownership_edges.append({"brand_name": brand_name, "corporation_name": corp_name})
+
+        if match.get("qid"):
+            try:
+                chain = get_ownership_chain(match["qid"])
+                for link in chain:
+                    if not link.get("parent_name") or not link.get("child_name"):
+                        continue  # Wikidata sometimes returns empty labels — skip
+                    corporations.append({
+                        "name": link["parent_name"],
+                        "ticker": None,
+                        "cik": None,
+                        "jurisdiction": None,
+                        "oc_id": None,
+                    })
+                    subsidiary_edges.append({
+                        "child_name": link["child_name"],
+                        "parent_name": link["parent_name"],
+                    })
+            except Exception:
+                logger.exception("Ownership chain failed for %s (%s)", brand_name, match["qid"])
+
+    # Deduplicate corporations by name before loading
+    seen: set[str] = set()
+    unique_corps: list[dict] = []
+    for c in corporations:
+        if c["name"] not in seen:
+            unique_corps.append(c)
+            seen.add(c["name"])
+
+    load_corporations(session, unique_corps)
+    load_ownership_edges(session, ownership_edges)
+    load_subsidiary_edges(session, subsidiary_edges)
+    logger.info(
+        "Loaded %d brands, %d corporations, %d ownership edges, %d subsidiary edges",
+        len(brands), len(unique_corps), len(ownership_edges), len(subsidiary_edges),
+    )
 
 
 def run_fec(session) -> None:
@@ -87,6 +179,22 @@ def run_fec(session) -> None:
             len(corporate_pacs), len(committees),
         )
 
+        # Link corporate PACs to Corporation nodes already in the graph.
+        # Requires brand resolution to have run first (which loads Corporation nodes).
+        corp_names = fetch_corporation_names(session)
+        if corp_names:
+            pac_edges = resolve_pac_to_corporation(corporate_pacs, corp_names)
+            load_pac_edges(session, pac_edges)
+            logger.info(
+                "Linked %d corporate PACs to corporations (%d unmatched)",
+                len(pac_edges), len(corporate_pacs) - len(pac_edges),
+            )
+        else:
+            logger.warning(
+                "No Corporation nodes found — skipping PAC linkage. "
+                "Run brand resolution first."
+            )
+
         # Stream pas2, filter to support-only transaction types (24K, 24Z),
         # materialize, tag with cycle, then load.
         supported_contribs = list(
@@ -126,7 +234,7 @@ def main():
     parser.add_argument(
         "--steps",
         nargs="+",
-        choices=["schema", "fec", "scorecards", "scores", "all"],
+        choices=["schema", "brands", "fec", "scorecards", "scores", "all"],
         default=["all"],
         help="Pipeline steps to run",
     )
@@ -142,6 +250,8 @@ def main():
         with driver.session() as session:
             if run_all or "schema" in steps:
                 run_schema(session)
+            if run_all or "brands" in steps:
+                run_brands(session)
             if run_all or "fec" in steps:
                 run_fec(session)
             if run_all or "scorecards" in steps:
