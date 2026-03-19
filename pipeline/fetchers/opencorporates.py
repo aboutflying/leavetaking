@@ -28,8 +28,12 @@ def search_companies(query: str, jurisdiction: str = "") -> list[dict]:
         jurisdiction: Optional jurisdiction code (e.g. 'us_de' for Delaware).
 
     Returns:
-        List of company result dicts.
+        List of company result dicts, or [] if no API token is configured.
     """
+    if not settings.opencorporates_api_token:
+        logger.debug("OpenCorporates API token not configured — skipping search for '%s'", query)
+        return []
+
     params = _params()
     params["q"] = query
     if jurisdiction:
@@ -51,8 +55,12 @@ def get_company(jurisdiction: str, company_number: str) -> dict | None:
         company_number: Company registration number.
 
     Returns:
-        Company data dict or None.
+        Company data dict, None if not found or no API token is configured.
     """
+    if not settings.opencorporates_api_token:
+        logger.debug("OpenCorporates API token not configured — skipping get_company")
+        return None
+
     params = _params()
     resp = requests.get(
         f"{OC_BASE}/companies/{jurisdiction}/{company_number}",
@@ -72,8 +80,12 @@ def get_corporate_grouping(name: str) -> dict | None:
         name: Corporate grouping name.
 
     Returns:
-        Corporate grouping data or None.
+        Corporate grouping data, or None if not found or no API token is configured.
     """
+    if not settings.opencorporates_api_token:
+        logger.debug("OpenCorporates API token not configured — skipping get_corporate_grouping")
+        return None
+
     params = _params()
     params["q"] = name
     resp = requests.get(f"{OC_BASE}/corporate_groupings/search", params=params, timeout=30)
@@ -89,8 +101,12 @@ def get_subsidiary_statements(company_jurisdiction: str, company_number: str) ->
     """Get subsidiary relationship statements for a company.
 
     Returns:
-        List of subsidiary statement dicts with relationship details.
+        List of subsidiary statement dicts, or [] if no API token is configured.
     """
+    if not settings.opencorporates_api_token:
+        logger.debug("OpenCorporates API token not configured — skipping get_subsidiary_statements")
+        return []
+
     params = _params()
     resp = requests.get(
         f"{OC_BASE}/companies/{company_jurisdiction}/{company_number}/statements",
