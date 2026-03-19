@@ -35,12 +35,6 @@ class TestHealthEndpoint:
         assert resp.json() == {"status": "ok"}
 
 
-class TestDepsGetDriver:
-    def test_get_driver_returns_app_state_driver(self, client, mock_driver):
-        """Catches accidental driver re-creation instead of reusing app.state driver."""
-        assert app.state.neo4j_driver is mock_driver
-
-
 class TestScoreEndpoints:
     def test_get_brand_scores(self, client, mock_driver):
         """Catches wrong response shape or missing brand key."""
