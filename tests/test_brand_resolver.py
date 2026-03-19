@@ -153,3 +153,119 @@ class TestResolveBrand:
 
         mock_oc.assert_not_called()
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_brand — prompt_fn callback
+# ---------------------------------------------------------------------------
+
+# A Wikidata candidate that scores below 0.7 against "Bose"
+_BELOW_THRESHOLD_WD = [{"name": "Bose-Einstein Condensate Research", "qid": "Q999"}]
+# A Wikidata candidate that scores >= 0.7 against "Apple"
+_ABOVE_THRESHOLD_WD = [{"name": "Apple Inc.", "qid": "Q312"}]
+
+
+class TestResolveBrandPromptFn:
+    def test_prompt_fn_called_when_below_threshold_and_result_used(self):
+        """prompt_fn is called with candidates and its return value becomes the result.
+
+        Bug caught: prompt_fn called but return value ignored — user picks
+        a candidate but resolve_brand still returns None.
+        """
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
+            mock_wd.return_value = _BELOW_THRESHOLD_WD
+            mock_oc.return_value = []
+            prompt_fn = lambda name, cands: cands[0]
+            result = resolve_brand("Bose", oc_calls_used=[0], prompt_fn=prompt_fn)
+
+        assert result is not None
+        assert result["qid"] == "Q999"
+
+    def test_prompt_fn_skip_returns_none(self):
+        """prompt_fn returning None records brand as unresolved (user skipped).
+
+        Bug caught: skip choice not propagated — resolve_brand returns a
+        candidate despite the user choosing to skip.
+        """
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
+            mock_wd.return_value = _BELOW_THRESHOLD_WD
+            mock_oc.return_value = []
+            result = resolve_brand("Bose", oc_calls_used=[0], prompt_fn=lambda n, c: None)
+
+        assert result is None
+
+    def test_prompt_fn_none_preserves_headless_behavior(self):
+        """prompt_fn=None (default) returns None below threshold without raising.
+
+        Bug caught: regression in headless behavior — pipeline crashes when
+        prompt_fn is not provided.
+        """
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
+            mock_wd.return_value = _BELOW_THRESHOLD_WD
+            mock_oc.return_value = []
+            result = resolve_brand("Bose", oc_calls_used=[0])  # prompt_fn defaults to None
+
+        assert result is None
+
+    def test_prompt_fn_not_called_when_no_candidates(self):
+        """prompt_fn must not be called when both WD and OC return no results.
+
+        Bug caught: prompt shown with empty candidates list, causing IndexError
+        or confusing UX.
+        """
+        from unittest.mock import Mock
+
+        prompt_fn = Mock()
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
+            mock_wd.return_value = []
+            mock_oc.return_value = []
+            resolve_brand("Bose", oc_calls_used=[0], prompt_fn=prompt_fn)
+
+        prompt_fn.assert_not_called()
+
+    def test_prompt_fn_not_called_when_auto_match_succeeds(self):
+        """prompt_fn must not be called when Wikidata returns a confident match.
+
+        Bug caught: prompt shown unnecessarily, interrupting batch run for
+        brands that already resolved automatically.
+        """
+        from unittest.mock import Mock
+
+        prompt_fn = Mock()
+        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd:
+            mock_wd.return_value = _ABOVE_THRESHOLD_WD
+            resolve_brand("Apple", oc_calls_used=[0], prompt_fn=prompt_fn)
+
+        prompt_fn.assert_not_called()
+
+    def test_prompt_fn_exception_propagates(self):
+        """Exceptions raised by prompt_fn are not swallowed.
+
+        Bug caught: hidden errors in prompt callbacks cause silent data loss
+        instead of a clear failure.
+        """
+        with (
+            patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd,
+            patch("pipeline.processors.brand_resolver.search_companies") as mock_oc,
+        ):
+            mock_wd.return_value = _BELOW_THRESHOLD_WD
+            mock_oc.return_value = []
+
+            def exploding_prompt(name, cands):
+                raise RuntimeError("prompt error")
+
+            import pytest
+            with pytest.raises(RuntimeError, match="prompt error"):
+                resolve_brand("Bose", oc_calls_used=[0], prompt_fn=exploding_prompt)

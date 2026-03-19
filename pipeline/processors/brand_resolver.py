@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from pipeline.fetchers.opencorporates import search_companies
 from pipeline.fetchers.wikidata import find_corporation
-from pipeline.processors.entity_resolution import match_brand_to_corporation
+from pipeline.processors.entity_resolution import _get_scored_candidates, match_brand_to_corporation
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,14 @@ def resolve_brand(
     brand_name: str,
     oc_calls_used: list[int],
     max_oc_calls: int = 20,
+    prompt_fn: Callable[[str, list[dict]], dict | None] | None = None,
 ) -> dict | None:
     """Resolve a single brand name to its best corporate match.
 
     Tries Wikidata EntitySearch first. Falls back to OpenCorporates only when
     Wikidata returns no confident match AND the per-run OC budget remains.
+    When no automatic match is found but candidates exist, calls prompt_fn
+    (if provided) to let the user pick a candidate interactively.
 
     Args:
         brand_name: Consumer-facing brand name (e.g. "Apple", "Procter & Gamble").
@@ -65,6 +69,11 @@ def resolve_brand(
                        made so far in this pipeline run.
         max_oc_calls: Maximum OC calls allowed per run (default 20, well within
                       the 50 req/day free tier).
+        prompt_fn: Optional callback invoked when no automatic match is found but
+                   candidates exist. Receives (brand_name, scored_candidates) and
+                   returns a chosen candidate dict or None to skip. Exceptions
+                   from prompt_fn propagate to the caller. When None, headless
+                   behavior is preserved (returns None below threshold).
 
     Returns:
         Best-match dict (with at least 'name' and 'qid'/'source' keys), or None.
@@ -77,31 +86,39 @@ def resolve_brand(
         return match
 
     # --- OpenCorporates fallback (guarded by quota) ---
-    if oc_calls_used[0] >= max_oc_calls:
+    oc_results: list[dict] = []
+    if oc_calls_used[0] < max_oc_calls:
+        try:
+            oc_results = search_companies(brand_name)
+        except Exception:
+            logger.warning("OpenCorporates lookup failed for '%s'", brand_name, exc_info=True)
+    else:
         logger.debug(
             "OC quota exhausted (%d/%d) — skipping '%s'", oc_calls_used[0], max_oc_calls, brand_name
         )
-        return None
 
-    try:
-        oc_results = search_companies(brand_name)
-    except Exception:
-        logger.warning("OpenCorporates lookup failed for '%s'", brand_name, exc_info=True)
-        return None
+    if oc_results:
+        oc_calls_used[0] += 1
+        match = match_brand_to_corporation(brand_name, [], oc_results) or None
+        if match is not None:
+            logger.info("OpenCorporates resolved '%s' -> '%s'", brand_name, match.get("name"))
+            return match
 
-    oc_calls_used[0] += 1
-    match = match_brand_to_corporation(brand_name, [], oc_results) or None
-    if match is not None:
-        logger.info("OpenCorporates resolved '%s' -> '%s'", brand_name, match.get("name"))
-    else:
-        logger.debug("No match found for '%s' (Wikidata + OC both exhausted)", brand_name)
-    return match
+    # --- Interactive fallback (when prompt_fn provided and candidates exist) ---
+    if prompt_fn is not None:
+        candidates = _get_scored_candidates(brand_name, wd_results, oc_results)
+        if candidates:
+            return prompt_fn(brand_name, candidates)
+
+    logger.debug("No match found for '%s' (Wikidata + OC both exhausted)", brand_name)
+    return None
 
 
 def resolve_all_brands(
     brand_names: list[str],
     cache_path: Path,
     max_oc_calls: int = 20,
+    prompt_fn: Callable[[str, list[dict]], dict | None] | None = None,
 ) -> dict[str, dict]:
     """Resolve a list of brand names, writing cache after each one.
 
@@ -130,7 +147,7 @@ def resolve_all_brands(
     )
 
     for brand_name in unresolved:
-        result = resolve_brand(brand_name, oc_calls_used, max_oc_calls)
+        result = resolve_brand(brand_name, oc_calls_used, max_oc_calls, prompt_fn)
         cache[brand_name] = result  # None for no-match — prevents re-query on re-run
         _save_cache(cache, cache_path)  # incremental: write after every brand
 
