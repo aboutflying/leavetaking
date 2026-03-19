@@ -19,6 +19,7 @@ from pipeline.fetchers.wikidata import get_ownership_chain
 from pipeline.loaders.graph_loader import (
     apply_schema,
     fetch_corporation_names,
+    is_fec_cycle_loaded,
     load_brands,
     load_candidate_committee_linkage,
     load_candidates,
@@ -31,6 +32,7 @@ from pipeline.loaders.graph_loader import (
     load_scorecard_ratings,
     load_seed_data,
     load_subsidiary_edges,
+    mark_fec_cycle_loaded,
     reconcile_provisional_candidates,
 )
 from pipeline.processors.brand_resolver import resolve_all_brands
@@ -192,7 +194,7 @@ def run_brands(session) -> None:
     )
 
 
-def run_fec(session) -> None:
+def run_fec(session, force: bool = False) -> None:
     """Step 1: Fetch and load FEC Tier 1 bulk data.
 
     Downloads and processes: committee master (cm), candidate master (cn),
@@ -203,10 +205,16 @@ def run_fec(session) -> None:
     After loading candidates, runs reconciliation to upgrade any provisional
     Candidate nodes (created by the scorecard pipeline) that now have a
     matching real FEC record.
+
+    Cycles that have already been loaded (FECCycleLoad marker present) are
+    skipped unless ``force=True``.
     """
     logger.info("=== FEC Data Pipeline ===")
 
     for cycle in settings.fec_cycles:
+        if not force and is_fec_cycle_loaded(session, cycle):
+            logger.info("Cycle %d already loaded — skipping (use --force to reload)", cycle)
+            continue
         logger.info("--- Processing cycle %d ---", cycle)
 
         # Download Tier 1 bulk files (no indiv — exec donations deferred to Tier 2)
@@ -273,6 +281,9 @@ def run_fec(session) -> None:
         ccl_rows = parse_candidate_committee_linkage(ccl_path)
         load_candidate_committee_linkage(session, ccl_rows, known_cand_ids=known_cand_ids)
 
+        mark_fec_cycle_loaded(session, cycle)
+        logger.info("Cycle %d load complete", cycle)
+
 
 def run_scorecards(session) -> None:
     """Step 2: Load scorecard data, resolve to FEC candidate IDs, and load edges.
@@ -313,6 +324,11 @@ def main():
         default=["all"],
         help="Pipeline steps to run",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-load FEC cycles even if they are already marked as loaded in the graph",
+    )
     args = parser.parse_args()
 
     ensure_data_dirs()
@@ -328,7 +344,7 @@ def main():
             if run_all or "brands" in steps:
                 run_brands(session)
             if run_all or "fec" in steps:
-                run_fec(session)
+                run_fec(session, force=args.force)
             if run_all or "scorecards" in steps:
                 run_scorecards(session)
             if run_all or "scores" in steps:

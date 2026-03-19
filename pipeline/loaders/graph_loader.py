@@ -389,6 +389,28 @@ def load_scorecard_ratings(session: Session, ratings: list[dict]) -> int:
     return _batch_load(session, query, ratings)
 
 
+def is_fec_cycle_loaded(session: Session, cycle: int) -> bool:
+    """Return True if a FECCycleLoad marker node exists for this cycle.
+
+    The marker is written by mark_fec_cycle_loaded() at the end of a successful
+    run_fec() cycle.  Its presence means all four Tier 1 files (cm, cn, pas2, ccl)
+    were fully processed and loaded for that cycle.
+    """
+    result = session.run(
+        "RETURN exists((:FECCycleLoad {cycle: $cycle})) AS loaded",
+        cycle=cycle,
+    )
+    return bool(result.single()["loaded"])
+
+
+def mark_fec_cycle_loaded(session: Session, cycle: int) -> None:
+    """Write (or update) a FECCycleLoad marker node for this cycle."""
+    session.run(
+        "MERGE (n:FECCycleLoad {cycle: $cycle}) SET n.loaded_at = datetime()",
+        cycle=cycle,
+    )
+
+
 _LOAD_LOG_INTERVAL = 50_000
 
 

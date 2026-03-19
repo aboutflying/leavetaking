@@ -38,6 +38,8 @@ def fec_patches():
         patch(f"{_PATCH_BASE}.load_committee_contributions") as mock_load_contribs,
         patch(f"{_PATCH_BASE}.load_candidate_committee_linkage") as mock_load_linkage,
         patch(f"{_PATCH_BASE}.filter_corporate_pacs", return_value=[]) as mock_filter_pacs,
+        patch(f"{_PATCH_BASE}.is_fec_cycle_loaded", return_value=False) as mock_is_loaded,
+        patch(f"{_PATCH_BASE}.mark_fec_cycle_loaded") as mock_mark_loaded,
     ):
         mock_settings.fec_cycles = [2026]
         yield {
@@ -52,7 +54,41 @@ def fec_patches():
             "load_committee_contributions": mock_load_contribs,
             "load_candidate_committee_linkage": mock_load_linkage,
             "filter_corporate_pacs": mock_filter_pacs,
+            "is_fec_cycle_loaded": mock_is_loaded,
+            "mark_fec_cycle_loaded": mock_mark_loaded,
         }
+
+
+def test_run_fec_skips_already_loaded_cycle(fec_patches):
+    """Cycles with a FECCycleLoad marker are skipped without downloading."""
+    from pipeline.run_pipeline import run_fec
+
+    fec_patches["is_fec_cycle_loaded"].return_value = True
+    run_fec(_make_session())
+
+    fec_patches["download_bulk_file"].assert_not_called()
+    fec_patches["load_candidates"].assert_not_called()
+
+
+def test_run_fec_force_bypasses_loaded_check(fec_patches):
+    """force=True loads the cycle even when the marker exists."""
+    from pipeline.run_pipeline import run_fec
+
+    fec_patches["is_fec_cycle_loaded"].return_value = True
+    run_fec(_make_session(), force=True)
+
+    assert fec_patches["download_bulk_file"].called
+
+
+def test_run_fec_marks_cycle_loaded_after_completion(fec_patches):
+    """A FECCycleLoad marker is written after a cycle completes successfully."""
+    from pipeline.run_pipeline import run_fec
+
+    run_fec(_make_session())
+
+    fec_patches["mark_fec_cycle_loaded"].assert_called_once()
+    call_args = fec_patches["mark_fec_cycle_loaded"].call_args
+    assert call_args[0][1] == 2026  # second positional arg is the cycle
 
 
 def test_run_fec_does_not_download_indiv(fec_patches):
