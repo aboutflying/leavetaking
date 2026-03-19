@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 from pathlib import Path
 
 from pipeline.config import ensure_data_dirs, get_neo4j_driver, settings
@@ -15,7 +16,7 @@ from pipeline.fetchers.fec import (
     parse_committee_master,
 )
 from pipeline.fetchers.scorecards import load_all_scorecards
-from pipeline.fetchers.wikidata import get_ownership_chain
+from pipeline.fetchers.wikidata import _search_entities, get_ownership_chain
 from pipeline.loaders.graph_loader import (
     apply_schema,
     fetch_corporation_names,
@@ -40,6 +41,7 @@ from pipeline.processors.entity_resolution import (
     filter_corporate_pacs,
     filter_supported_contributions,
     resolve_pac_to_corporation,
+    similarity,
 )
 from pipeline.processors.score_computation import compute_all_scores, export_scores
 from pipeline.processors.scorecard_resolver import build_candidate_index, resolve_candidates
@@ -119,7 +121,12 @@ def run_schema(session) -> None:
     load_seed_data(session, FORTUNE100_SEED_PATH)
 
 
-def run_brands(session, interactive: bool = False, retry_nulls: bool = False) -> None:
+def run_brands(
+    session,
+    interactive: bool = False,
+    retry_nulls: bool = False,
+    skip_discovery: bool = False,
+) -> None:
     """Step 1: Resolve brand names to corporations and load into the graph.
 
     Must run before run_fec so that Corporation nodes exist for PAC linkage.
@@ -131,6 +138,8 @@ def run_brands(session, interactive: bool = False, retry_nulls: bool = False) ->
                      candidates but no confident automatic match. When False
                      (default), below-threshold brands are silently skipped —
                      safe for unattended/cron runs.
+        skip_discovery: When True, skip QID enrichment and subsidiary/brand
+                        discovery phases (faster for dev re-runs).
     """
     from pipeline.processors.brand_resolver import _stdin_prompt
 
@@ -204,6 +213,44 @@ def run_brands(session, interactive: bool = False, retry_nulls: bool = False) ->
         len(ownership_edges),
         len(subsidiary_edges),
     )
+
+    if not skip_discovery:
+        logger.info("=== QID Enrichment ===")
+        enrich_corporation_qids(session)
+
+
+def enrich_corporation_qids(session, delay: float = 1.0) -> int:
+    """Backfill Wikidata QIDs for Corporation nodes that lack one.
+
+    Queries wbsearchentities for each corporation name, accepts the first hit
+    with similarity(corp_name, label) >= 0.7. Idempotent: the Neo4j query
+    filters to WHERE c.qid IS NULL so already-enriched corps are skipped.
+    Rate-limited via delay between API calls.
+
+    Returns:
+        Number of corporations successfully enriched with a QID.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) WHERE c.qid IS NULL RETURN c.name AS name"
+    )
+    names = [r["name"] for r in result]
+    enriched = 0
+    for name in names:
+        try:
+            hits = _search_entities(name)
+        except Exception:
+            logger.warning("QID enrichment search failed for '%s'", name)
+            time.sleep(delay)
+            continue
+        for hit in hits:
+            label = hit.get("label", "")
+            if label and similarity(name, label) >= 0.7:
+                load_corporations(session, [{"name": name, "qid": hit["qid"]}])
+                enriched += 1
+                break
+        time.sleep(delay)
+    logger.info("Enriched %d corporation QIDs", enriched)
+    return enriched
 
 
 def run_fec(session, force: bool = False) -> None:
@@ -351,6 +398,11 @@ def main():
         action="store_true",
         help="Re-resolve brands previously cached as null (no match found)",
     )
+    parser.add_argument(
+        "--skip-discovery",
+        action="store_true",
+        help="Skip QID enrichment and subsidiary/brand discovery phases (faster for dev re-runs)",
+    )
     args = parser.parse_args()
 
     ensure_data_dirs()
@@ -364,7 +416,12 @@ def main():
             if run_all or "schema" in steps:
                 run_schema(session)
             if run_all or "brands" in steps:
-                run_brands(session, interactive=args.interactive, retry_nulls=args.retry_nulls)
+                run_brands(
+                    session,
+                    interactive=args.interactive,
+                    retry_nulls=args.retry_nulls,
+                    skip_discovery=args.skip_discovery,
+                )
             if run_all or "fec" in steps:
                 run_fec(session, force=args.force)
             if run_all or "scorecards" in steps:

@@ -27,13 +27,23 @@ def main():
         action="store_true",
         help="Re-resolve brands previously cached as null (no match found)",
     )
+    parser.add_argument(
+        "--skip-discovery",
+        action="store_true",
+        help="Skip QID enrichment and subsidiary/brand discovery phases (faster for dev re-runs)",
+    )
     args = parser.parse_args()
 
     ensure_data_dirs()
     driver = get_neo4j_driver()
     try:
         with driver.session() as session:
-            run_brands(session, interactive=args.interactive, retry_nulls=args.retry_nulls)
+            run_brands(
+                session,
+                interactive=args.interactive,
+                retry_nulls=args.retry_nulls,
+                skip_discovery=args.skip_discovery,
+            )
     finally:
         driver.close()
 

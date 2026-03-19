@@ -87,7 +87,11 @@ def _search_entities(brand_name: str, limit: int = 5) -> list[str]:
     for item in resp.json().get("search", []):
         match_obj = item.get("match", {})
         alias = match_obj.get("text") if match_obj.get("type") == "alias" else None
-        results.append({"qid": item["id"], "matched_alias": alias})
+        results.append({
+            "qid": item["id"],
+            "matched_alias": alias,
+            "label": item.get("label", ""),
+        })
     return results
 
 

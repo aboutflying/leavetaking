@@ -346,6 +346,21 @@ class TestSearchEntitiesAliasCapture:
         assert len(results) == 1
         assert results[0]["matched_alias"] is None
 
+    def test_search_entities_returns_label_in_result(self):
+        """Each result dict contains a 'label' key with the Wikidata entity label.
+
+        Bug caught: label key absent from return dict causes KeyError in
+        enrich_corporation_qids when it calls hit.get('label', '') for
+        similarity scoring.
+        """
+        with patch("pipeline.fetchers.wikidata.requests.get") as mock_get:
+            mock_get.return_value = _mock_get(_WBSEARCH_LABEL_MATCH)
+            results = _search_entities("Apple")
+
+        assert len(results) == 1
+        assert "label" in results[0], "label key must be present in _search_entities result"
+        assert results[0]["label"] == "Apple Inc."
+
 
 class TestFindCorporationAliasThreading:
     def test_find_corporation_passes_alias_to_result(self):

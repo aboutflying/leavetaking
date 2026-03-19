@@ -293,3 +293,113 @@ def test_run_fec_passes_known_cand_ids_to_linkage_loader(fec_patches):
     assert isinstance(call_kwargs["known_cand_ids"], set), (
         f"known_cand_ids must be a set, got {type(call_kwargs['known_cand_ids'])}"
     )
+
+
+# ---------------------------------------------------------------------------
+# enrich_corporation_qids tests
+# ---------------------------------------------------------------------------
+
+from pipeline.run_pipeline import enrich_corporation_qids  # noqa: E402
+
+
+class TestEnrichCorporationQids:
+    def test_no_work_when_all_corps_have_qids(self):
+        """Returns 0 and calls no API when Neo4j returns no QID-less corps.
+
+        Bug caught: function iterates all corps instead of relying on
+        WHERE c.qid IS NULL filter, wasting API quota on re-runs.
+        """
+        session = _make_session()
+        session.run.return_value = []  # WHERE c.qid IS NULL returns nothing
+
+        with patch(f"{_PATCH_BASE}._search_entities") as mock_search:
+            result = enrich_corporation_qids(session, delay=0)
+
+        mock_search.assert_not_called()
+        assert result == 0
+
+    def test_writes_qid_for_corp_above_similarity_threshold(self):
+        """Writes QID to Corporation node when similarity(name, label) >= 0.7.
+
+        Bug caught: function finds match via wbsearchentities but never calls
+        load_corporations to persist the QID — silently returns 0.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Apple Inc."}]
+
+        with (
+            patch(f"{_PATCH_BASE}._search_entities") as mock_search,
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load,
+        ):
+            mock_search.return_value = [
+                {"qid": "Q312", "matched_alias": None, "label": "Apple Inc."}
+            ]
+            result = enrich_corporation_qids(session, delay=0)
+
+        mock_load.assert_called_once_with(session, [{"name": "Apple Inc.", "qid": "Q312"}])
+        assert result == 1
+
+    def test_skips_low_similarity_match(self):
+        """Does not write QID when similarity(name, label) < 0.7.
+
+        Bug caught: accepts first wbsearchentities hit regardless of relevance,
+        assigning a wrong QID (e.g. 'Apple Records' for 'Apple Inc.').
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Apple Inc."}]
+
+        with (
+            patch(f"{_PATCH_BASE}._search_entities") as mock_search,
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load,
+        ):
+            mock_search.return_value = [
+                {"qid": "Q9999", "matched_alias": None, "label": "Totally Different Corp XYZ"}
+            ]
+            result = enrich_corporation_qids(session, delay=0)
+
+        mock_load.assert_not_called()
+        assert result == 0
+
+    def test_handles_empty_search_results(self):
+        """Returns 0 without error when wbsearchentities returns no hits.
+
+        Bug caught: function crashes (IndexError or KeyError) when iterating
+        an empty hits list.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Acme Obscure Corp"}]
+
+        with (
+            patch(f"{_PATCH_BASE}._search_entities") as mock_search,
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load,
+        ):
+            mock_search.return_value = []
+            result = enrich_corporation_qids(session, delay=0)
+
+        mock_load.assert_not_called()
+        assert result == 0
+
+    def test_handles_search_exception_and_continues(self):
+        """HTTPError from _search_entities is caught; enrichment continues for other corps.
+
+        Bug caught: unhandled exception aborts enrichment for all remaining
+        corps when a single wbsearchentities call fails (e.g. 429 rate limit).
+        """
+        import requests
+
+        session = _make_session()
+        session.run.return_value = [{"name": "Acme"}, {"name": "Apple Inc."}]
+
+        with (
+            patch(f"{_PATCH_BASE}._search_entities") as mock_search,
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load,
+        ):
+            mock_search.side_effect = [
+                requests.HTTPError("429"),
+                [{"qid": "Q312", "matched_alias": None, "label": "Apple Inc."}],
+            ]
+            result = enrich_corporation_qids(session, delay=0)
+
+        # Apple Inc. should still be enriched despite Acme failing
+        mock_load.assert_called_once()
+        assert result == 1
