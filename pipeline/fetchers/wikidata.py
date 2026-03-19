@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+from pathlib import Path
 
 import requests
 
@@ -12,6 +14,44 @@ from pipeline.config import settings
 logger = logging.getLogger(__name__)
 
 HEADERS = {"Accept": "application/sparql-results+json", "User-Agent": "PoliticalPurchaser/0.1"}
+
+# ---------------------------------------------------------------------------
+# Disk-backed cache for Wikidata API calls
+# ---------------------------------------------------------------------------
+
+_CACHE: dict = {"search_entities": {}, "subsidiaries": {}, "brands": {}}
+
+
+def _cache_path() -> Path:
+    return Path(settings.data_dir) / "wikidata" / "cache.json"
+
+
+def _load_cache() -> None:
+    """Load Wikidata API cache from disk. No-op if file missing or corrupt."""
+    p = _cache_path()
+    if not p.exists():
+        return
+    try:
+        data = json.loads(p.read_text())
+        if isinstance(data, dict):
+            _CACHE.update(data)
+    except Exception:
+        logger.debug("Failed to load Wikidata cache — starting fresh")
+    for key in ("search_entities", "subsidiaries", "brands"):
+        _CACHE.setdefault(key, {})
+
+
+def _save_cache() -> None:
+    """Persist Wikidata API cache to disk. No-op on error."""
+    try:
+        p = _cache_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(_CACHE, indent=2))
+    except Exception:
+        logger.warning("Failed to save Wikidata cache")
+
+
+_load_cache()
 
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 
@@ -68,21 +108,45 @@ def _search_entities(brand_name: str, limit: int = 5) -> list[str]:
 
     This is more reliable than wikibase:mwapi EntitySearch inside SPARQL, which
     returns HTTP 500 for popular brand names due to Wikidata query engine timeouts.
+    Results are cached to data/wikidata/cache.json to avoid redundant API calls.
     """
-    resp = requests.get(
-        WIKIDATA_API,
-        params={
-            "action": "wbsearchentities",
-            "search": brand_name,
-            "type": "item",
-            "language": "en",
-            "limit": limit,
-            "format": "json",
-        },
-        headers=HEADERS,
-        timeout=30,
-    )
-    resp.raise_for_status()
+    if brand_name in _CACHE["search_entities"]:
+        return _CACHE["search_entities"][brand_name]
+
+    last_exc: requests.HTTPError | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = requests.get(
+                WIKIDATA_API,
+                params={
+                    "action": "wbsearchentities",
+                    "search": brand_name,
+                    "type": "item",
+                    "language": "en",
+                    "limit": limit,
+                    "format": "json",
+                },
+                headers=HEADERS,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            break
+        except requests.HTTPError as exc:
+            if not _is_retryable(exc):
+                raise
+            last_exc = exc
+            delay = _RETRY_BASE_DELAY * (2**attempt)
+            logger.warning(
+                "wbsearchentities transient error (attempt %d/%d): %s — retrying in %.1fs",
+                attempt + 1,
+                _MAX_RETRIES,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    else:
+        raise last_exc  # type: ignore[misc]
+
     results = []
     for item in resp.json().get("search", []):
         match_obj = item.get("match", {})
@@ -92,6 +156,8 @@ def _search_entities(brand_name: str, limit: int = 5) -> list[str]:
             "matched_alias": alias,
             "label": item.get("label", ""),
         })
+    _CACHE["search_entities"][brand_name] = results
+    _save_cache()
     return results
 
 
@@ -152,9 +218,14 @@ def find_corporation(brand_name: str) -> list[dict]:
 def get_subsidiaries(corporation_qid: str) -> list[dict]:
     """Get all subsidiaries of a corporation by Wikidata QID.
 
+    Results are cached to data/wikidata/cache.json.
+
     Args:
         corporation_qid: Wikidata entity ID (e.g. 'Q95')
     """
+    if corporation_qid in _CACHE["subsidiaries"]:
+        return _CACHE["subsidiaries"][corporation_qid]
+
     sparql = (
         """
     SELECT ?subsidiary ?subsidiaryLabel WHERE {
@@ -166,13 +237,16 @@ def get_subsidiaries(corporation_qid: str) -> list[dict]:
     )
 
     results = query_sparql(sparql)
-    return [
+    subsidiaries = [
         {
             "qid": _qid_from_uri(r["subsidiary"]["value"]),
             "name": r.get("subsidiaryLabel", {}).get("value", ""),
         }
         for r in results
     ]
+    _CACHE["subsidiaries"][corporation_qid] = subsidiaries
+    _save_cache()
+    return subsidiaries
 
 
 _BRAND_DISCOVERY_LIMIT = 200
@@ -198,6 +272,9 @@ def discover_brands_for_corporation(corp_qid: str) -> list[dict]:
     """
     if not corp_qid or not corp_qid.startswith("Q"):
         return []
+
+    if corp_qid in _CACHE["brands"]:
+        return _CACHE["brands"][corp_qid]
 
     sparql = """
     SELECT ?item ?itemLabel WHERE {
@@ -231,6 +308,8 @@ def discover_brands_for_corporation(corp_qid: str) -> list[dict]:
                 "qid": _qid_from_uri(r.get("item", {}).get("value", "")),
             }
         )
+    _CACHE["brands"][corp_qid] = brands
+    _save_cache()
     return brands
 
 

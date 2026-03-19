@@ -4,14 +4,24 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, call, patch
 
+import pytest
 import requests
 
+import pipeline.fetchers.wikidata as _wd_module
 from pipeline.fetchers.wikidata import (
     _search_entities,
     discover_brands_for_corporation,
     find_corporation,
+    get_subsidiaries,
     query_sparql,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_wikidata_cache(monkeypatch):
+    """Reset in-process Wikidata cache before each test and suppress disk writes."""
+    monkeypatch.setattr(_wd_module, "_CACHE", {"search_entities": {}, "subsidiaries": {}, "brands": {}})
+    monkeypatch.setattr(_wd_module, "_save_cache", lambda: None)
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -510,3 +520,122 @@ class TestDiscoverBrandsForCorporation:
         assert result_empty == []
         assert result_invalid == []
         assert result_none == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: disk-backed cache
+# ---------------------------------------------------------------------------
+
+
+class TestCaching:
+    def test_search_entities_cache_hit_skips_http(self):
+        """Cache hit for _search_entities must not make any HTTP request."""
+        cached = [{"qid": "Q312", "matched_alias": None, "label": "Apple Inc."}]
+        _wd_module._CACHE["search_entities"]["Apple"] = cached
+
+        with patch("pipeline.fetchers.wikidata.requests.get") as mock_get:
+            result = _search_entities("Apple")
+
+        mock_get.assert_not_called()
+        assert result == cached
+
+    def test_search_entities_cache_miss_saves_result(self):
+        """Cache miss for _search_entities makes HTTP call and populates cache."""
+        saved = {}
+        _wd_module._save_cache = lambda: None  # already patched by fixture
+
+        def capture_save():
+            saved.update(_wd_module._CACHE["search_entities"])
+
+        _wd_module._save_cache = capture_save
+
+        with patch("pipeline.fetchers.wikidata.requests.get") as mock_get:
+            mock_get.return_value = _mock_get(_WBSEARCH_RESPONSE_ONE)
+            result = _search_entities("Procter & Gamble")
+
+        mock_get.assert_called_once()
+        assert "Procter & Gamble" in saved
+        assert result[0]["qid"] == "Q185741"
+
+    def test_get_subsidiaries_cache_hit_skips_sparql(self):
+        """Cache hit for get_subsidiaries must not execute a SPARQL query."""
+        cached = [{"qid": "Q866", "name": "YouTube"}]
+        _wd_module._CACHE["subsidiaries"]["Q95"] = cached
+
+        with patch("pipeline.fetchers.wikidata.query_sparql") as mock_sparql:
+            result = get_subsidiaries("Q95")
+
+        mock_sparql.assert_not_called()
+        assert result == cached
+
+    def test_get_subsidiaries_cache_miss_saves_result(self):
+        """Cache miss for get_subsidiaries calls SPARQL and caches the result."""
+        binding = {
+            "subsidiary": {"type": "uri", "value": "http://www.wikidata.org/entity/Q866"},
+            "subsidiaryLabel": {"type": "literal", "value": "YouTube"},
+        }
+        with patch("pipeline.fetchers.wikidata.query_sparql", return_value=[binding]):
+            result = get_subsidiaries("Q95")
+
+        assert result == [{"qid": "Q866", "name": "YouTube"}]
+        assert _wd_module._CACHE["subsidiaries"]["Q95"] == result
+
+    def test_discover_brands_cache_hit_skips_sparql(self):
+        """Cache hit for discover_brands_for_corporation must not execute SPARQL."""
+        cached = [{"name": "YouTube", "qid": "Q866"}]
+        _wd_module._CACHE["brands"]["Q95"] = cached
+
+        with patch("pipeline.fetchers.wikidata.query_sparql") as mock_sparql:
+            result = discover_brands_for_corporation("Q95")
+
+        mock_sparql.assert_not_called()
+        assert result == cached
+
+    def test_discover_brands_cache_miss_saves_result(self):
+        """Cache miss for discover_brands_for_corporation calls SPARQL and caches."""
+        binding = {
+            "item": {"type": "uri", "value": "http://www.wikidata.org/entity/Q866"},
+            "itemLabel": {"type": "literal", "value": "YouTube"},
+        }
+        with patch("pipeline.fetchers.wikidata.query_sparql", return_value=[binding]):
+            result = discover_brands_for_corporation("Q95")
+
+        assert result == [{"name": "YouTube", "qid": "Q866"}]
+        assert _wd_module._CACHE["brands"]["Q95"] == result
+
+
+# ---------------------------------------------------------------------------
+# Tests: _search_entities retry on 429
+# ---------------------------------------------------------------------------
+
+
+class TestSearchEntitiesRetry:
+    def test_search_entities_retries_on_429(self):
+        """_search_entities must retry on 429 Too Many Requests and succeed."""
+        ok_resp = _mock_get(_WBSEARCH_RESPONSE_ONE)
+        err_resp = MagicMock(raise_for_status=MagicMock(side_effect=requests.HTTPError("429")))
+        # Make err_resp look retryable
+        err_resp.raise_for_status.side_effect = requests.HTTPError("429 Too Many Requests")
+
+        with patch("pipeline.fetchers.wikidata.requests.get") as mock_get:
+            with patch("pipeline.fetchers.wikidata.time.sleep"):
+                mock_get.side_effect = [err_resp, ok_resp]
+                results = _search_entities("Procter & Gamble")
+
+        assert len(results) == 1
+        assert mock_get.call_count == 2
+
+    def test_search_entities_does_not_retry_on_400(self):
+        """_search_entities must not retry on 400 Bad Request."""
+        err_resp = MagicMock(raise_for_status=MagicMock(side_effect=requests.HTTPError("400")))
+
+        with patch("pipeline.fetchers.wikidata.requests.get") as mock_get:
+            with patch("pipeline.fetchers.wikidata.time.sleep") as mock_sleep:
+                mock_get.return_value = err_resp
+                try:
+                    _search_entities("bad query")
+                except requests.HTTPError:
+                    pass
+
+        assert mock_get.call_count == 1
+        mock_sleep.assert_not_called()

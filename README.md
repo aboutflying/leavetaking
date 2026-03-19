@@ -177,6 +177,56 @@ The system uses legislative scorecards from organizations across the political s
 
 This is how the tool stays politically neutral — it surfaces data, and users decide what matters.
 
+## How Scoring Works
+
+Scores are pre-computed weekly by traversing the graph from brand to issue:
+
+```
+Brand → (OWNED_BY) → Corporation → (SUBSIDIARY_OF*0..10) → Corporation
+  → (OPERATES_PAC) → Committee → (CONTRIBUTED_TO) → Candidate
+  → (RATES) → Scorecard → (COVERS) → Issue
+```
+
+For each `(brand, issue, scorecard)` combination, the pipeline collects every PAC contribution along this path and computes a **dollar-weighted average** of the candidates' scorecard ratings:
+
+```
+score = Σ(candidate_score × dollars_contributed) / Σ(dollars_contributed)
+```
+
+If all contributions have zero dollars (e.g., in-kind or unitemized), it falls back to a plain unweighted average. Scores are rounded to one decimal place.
+
+Each result also carries a **confidence tier**:
+
+| Confidence | Condition |
+|------------|-----------|
+| `high` | > $100k total flow **and** ≥ 5 unique candidates |
+| `medium` | > $10k total flow **or** ≥ 2 unique candidates |
+| `low` | everything else (sparse data or zero-dollar fallback) |
+
+Scores are stored **per scorecard org**, not collapsed into a single number. The extension combines them client-side based on which scorecards the user trusts. A user who trusts only the LCV scorecard sees only environment scores weighted by LCV ratings; a user who trusts LCV + HRC sees both.
+
+The exported `scores.json` schema:
+
+```json
+{
+  "meta": { "version": "0.2", "generated_at": "...", "brand_count": 42 },
+  "brands": {
+    "BrandName": {
+      "environment": {
+        "League of Conservation Voters": {
+          "score": 45.2,
+          "dollars": 125000,
+          "candidates": 8,
+          "confidence": "high"
+        }
+      }
+    }
+  }
+}
+```
+
+> **Note:** Only PAC contributions (Tier 1) are included in scores today. Executive individual donations (Tier 2) and dark money via 501(c)(4)s are not tracked — the UI surfaces this limitation.
+
 ## Data Sources
 
 - **FEC Bulk Data** — PAC contributions (committee master, candidate master, pas2, ccl); individual contributions deferred to Tier 2
