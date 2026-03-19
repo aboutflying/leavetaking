@@ -166,6 +166,7 @@ def resolve_all_brands(
     cache_path: Path,
     max_oc_calls: int = 20,
     prompt_fn: Callable[[str, list[dict]], dict | None] | None = None,
+    retry_nulls: bool = False,
 ) -> dict[str, dict]:
     """Resolve a list of brand names, writing cache after each one.
 
@@ -183,6 +184,16 @@ def resolve_all_brands(
         Brands with no match are stored as null in the cache but excluded from the return value.
     """
     cache = _load_cache(cache_path)
+
+    if retry_nulls:
+        nulls = [k for k, v in cache.items() if v is None]
+        for k in nulls:
+            del cache[k]
+        if nulls:
+            logger.info(
+                "retry_nulls: cleared %d cached null(s): %s", len(nulls), ", ".join(sorted(nulls))
+            )
+
     oc_calls_used = [0]
 
     unresolved = [b for b in brand_names if b not in cache]

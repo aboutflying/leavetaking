@@ -22,13 +22,18 @@ def main():
         action="store_true",
         help="Pause and prompt for manual brand matching when no confident match is found",
     )
+    parser.add_argument(
+        "--retry-nulls",
+        action="store_true",
+        help="Re-resolve brands previously cached as null (no match found)",
+    )
     args = parser.parse_args()
 
     ensure_data_dirs()
     driver = get_neo4j_driver()
     try:
         with driver.session() as session:
-            run_brands(session, interactive=args.interactive)
+            run_brands(session, interactive=args.interactive, retry_nulls=args.retry_nulls)
     finally:
         driver.close()
 

@@ -59,6 +59,44 @@ class TestResolveAllBrandsCaching:
 
         mock_wd.assert_not_called()
 
+    def test_resolve_all_brands_retries_nulls_when_flag_set(self, tmp_path):
+        """retry_nulls=True re-queries brands cached as null.
+
+        Bug caught: without this flag there is no way to retry brands that
+        previously returned no match without manually editing the cache file.
+        """
+        cache_file = tmp_path / "brand_resolutions.json"
+        cache_file.write_text(json.dumps({"SC Johnson": None}))
+
+        sc_johnson_match = [{"qid": "Q380285", "name": "SC Johnson", "source": "wikidata"}]
+        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd:
+            mock_wd.return_value = sc_johnson_match
+            result = resolve_all_brands(["SC Johnson"], cache_file, retry_nulls=True)
+
+        mock_wd.assert_called_once_with("SC Johnson")
+        assert "SC Johnson" in result
+
+    def test_resolve_all_brands_retry_nulls_preserves_successful_resolutions(self, tmp_path):
+        """retry_nulls=True keeps existing successful resolutions in the cache.
+
+        Bug caught: retry_nulls accidentally clears resolved brands, forcing
+        a full re-query that exhausts Wikidata/OC quota.
+        """
+        cache_file = tmp_path / "brand_resolutions.json"
+        cache_file.write_text(json.dumps({
+            "Apple": {"name": "Apple Inc.", "qid": "Q312"},
+            "SC Johnson": None,
+        }))
+
+        with patch("pipeline.processors.brand_resolver.find_corporation") as mock_wd:
+            mock_wd.return_value = []
+            resolve_all_brands(["Apple", "SC Johnson"], cache_file, retry_nulls=True)
+
+        # Apple was already resolved — must not be re-queried
+        calls = [c.args[0] for c in mock_wd.call_args_list]
+        assert "Apple" not in calls
+        assert "SC Johnson" in calls
+
     def test_resolve_all_brands_saves_cache_after_each_brand(self, tmp_path):
         """Cache must be written after each brand, not once at the end.
 

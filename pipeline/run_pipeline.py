@@ -119,7 +119,7 @@ def run_schema(session) -> None:
     load_seed_data(session, FORTUNE100_SEED_PATH)
 
 
-def run_brands(session, interactive: bool = False) -> None:
+def run_brands(session, interactive: bool = False, retry_nulls: bool = False) -> None:
     """Step 1: Resolve brand names to corporations and load into the graph.
 
     Must run before run_fec so that Corporation nodes exist for PAC linkage.
@@ -137,7 +137,7 @@ def run_brands(session, interactive: bool = False) -> None:
     logger.info("=== Brand Resolution Pipeline ===")
     cache_path = settings.data_dir / "brand_resolutions.json"
     prompt_fn = _stdin_prompt if interactive else None
-    resolutions = resolve_all_brands(TOP_BRANDS, cache_path, prompt_fn=prompt_fn)
+    resolutions = resolve_all_brands(TOP_BRANDS, cache_path, prompt_fn=prompt_fn, retry_nulls=retry_nulls)
 
     brands = [
         {"name": name, "amazon_slug": name.lower().replace(" ", "-"), "aliases": []}
@@ -346,6 +346,11 @@ def main():
         action="store_true",
         help="Pause and prompt for manual brand matching when no confident match is found",
     )
+    parser.add_argument(
+        "--retry-nulls",
+        action="store_true",
+        help="Re-resolve brands previously cached as null (no match found)",
+    )
     args = parser.parse_args()
 
     ensure_data_dirs()
@@ -359,7 +364,7 @@ def main():
             if run_all or "schema" in steps:
                 run_schema(session)
             if run_all or "brands" in steps:
-                run_brands(session, interactive=args.interactive)
+                run_brands(session, interactive=args.interactive, retry_nulls=args.retry_nulls)
             if run_all or "fec" in steps:
                 run_fec(session, force=args.force)
             if run_all or "scorecards" in steps:
