@@ -22,7 +22,7 @@ def _load_scores() -> dict:
 
     path = settings.scores_output
     if not path.exists():
-        return {"meta": {"version": "0.1", "brand_count": 0}, "brands": {}}
+        return {"meta": {"version": "0.2", "brand_count": 0}, "brands": {}}
 
     _scores_cache = json.loads(path.read_text())
     return _scores_cache
@@ -52,11 +52,10 @@ async def search_scores(
     results = []
     for brand_name, brand_data in scores.get("brands", {}).items():
         if q_lower in brand_name.lower():
-            entry = {"brand": brand_name, **brand_data}
-            if issues:
-                entry["issues"] = {
-                    k: v for k, v in entry.get("issues", {}).items() if k in issues
-                }
+            entry = {"brand": brand_name}
+            for issue, data in brand_data.items():
+                if not issues or issue in issues:
+                    entry[issue] = data
             results.append(entry)
 
     return {"results": results, "count": len(results)}
