@@ -42,6 +42,9 @@ FOR (c:Corporation) ON (c.cik);
 CREATE INDEX corporation_fortune100_rank IF NOT EXISTS
 FOR (c:Corporation) ON (c.fortune100_rank);
 
+CREATE INDEX corporation_qid IF NOT EXISTS
+FOR (c:Corporation) ON (c.qid);
+
 CREATE INDEX candidate_name IF NOT EXISTS
 FOR (c:Candidate) ON (c.name);
 

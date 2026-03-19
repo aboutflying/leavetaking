@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from pipeline.loaders.graph_loader import (
     load_candidate_committee_linkage,
     load_committee_contributions,
+    load_corporations,
 )
 
 
@@ -103,4 +104,78 @@ def test_load_committee_contributions_sets_amount_on_merge():
     query_called = session.run.call_args_list[0][0][0]
     assert "SET" in query_called, (
         "Expected SET clause so amendments overwrite — MERGE without SET leaves stale values"
+    )
+
+
+# ---------------------------------------------------------------------------
+# load_corporations — qid storage tests
+# ---------------------------------------------------------------------------
+
+
+def test_load_corporations_stores_qid_when_present():
+    """Cypher includes corp.qid so the Wikidata QID is written to the node.
+
+    Bug caught: qid silently dropped from match dict — Corporation node never
+    gets a qid property, blocking all downstream P355 discovery.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp", "qid": "Q123"}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "corp.qid" in query_called, (
+        "Cypher must reference corp.qid — qid is being silently dropped from load_corporations"
+    )
+    batch_called = session.run.call_args_list[0][1]["batch"]
+    assert batch_called[0].get("qid") == "Q123", (
+        "qid value must be passed through in the batch parameter"
+    )
+
+
+def test_load_corporations_cypher_uses_null_safe_case_for_qid():
+    """Cypher uses CASE WHEN c.qid IS NOT NULL guard, not unconditional SET.
+
+    Bug caught: SET corp.qid = c.qid unconditionally overwrites existing qid
+    with NULL when re-running pipeline with a dict that lacks qid.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp"}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "c.qid IS NOT NULL" in query_called, (
+        "Cypher must guard qid assignment with IS NOT NULL to prevent writing NULL on re-runs"
+    )
+
+
+def test_load_corporations_skips_qid_when_none():
+    """Cypher IS NOT NULL guard prevents writing explicit None qid to the node.
+
+    Bug caught: qid=None in input dict writes NULL to the node, which breaks
+    future 'WHERE c.qid IS NOT NULL' discovery queries.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp", "qid": None}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "c.qid IS NOT NULL" in query_called, (
+        "CASE guard must be present so qid=None in input dict does not write NULL to graph"
+    )
+
+
+def test_load_corporations_preserves_existing_qid_when_new_dict_has_none():
+    """Cypher CASE includes ELSE corp.qid so existing node qid is preserved.
+
+    Bug caught: without ELSE corp.qid, a re-run with a dict that has no qid
+    silently wipes the previously stored QID from the Corporation node.
+    This breaks the P355 discovery pipeline on every subsequent run.
+    """
+    session = _make_session()
+
+    load_corporations(session, [{"name": "Acme Corp"}])
+
+    query_called = session.run.call_args_list[0][0][0]
+    assert "ELSE corp.qid" in query_called, (
+        "CASE must end with ELSE corp.qid to preserve existing qid when incoming dict has none"
     )

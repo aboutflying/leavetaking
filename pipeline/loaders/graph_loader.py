@@ -60,7 +60,9 @@ def load_corporations(session: Session, corporations: list[dict]) -> int:
     """Load Corporation nodes.
 
     Args:
-        corporations: List of dicts with keys: name, ticker, cik, jurisdiction, oc_id.
+        corporations: List of dicts with keys: name, ticker, cik, jurisdiction, oc_id,
+            qid (optional Wikidata QID, e.g. "Q312"). qid is only written when truthy
+            and non-empty; existing qid is preserved when the incoming dict lacks one.
     """
     query = """
     UNWIND $batch AS c
@@ -68,7 +70,8 @@ def load_corporations(session: Session, corporations: list[dict]) -> int:
     SET corp.ticker = c.ticker,
         corp.cik = c.cik,
         corp.jurisdiction = c.jurisdiction,
-        corp.oc_id = c.oc_id
+        corp.oc_id = c.oc_id,
+        corp.qid = CASE WHEN c.qid IS NOT NULL AND c.qid <> '' THEN c.qid ELSE corp.qid END
     """
     return _batch_load(session, query, corporations)
 
