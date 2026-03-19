@@ -119,16 +119,25 @@ def run_schema(session) -> None:
     load_seed_data(session, FORTUNE100_SEED_PATH)
 
 
-def run_brands(session) -> None:
+def run_brands(session, interactive: bool = False) -> None:
     """Step 1: Resolve brand names to corporations and load into the graph.
 
     Must run before run_fec so that Corporation nodes exist for PAC linkage.
     Results are cached to settings.data_dir/brand_resolutions.json — re-runs
     skip already-resolved brands.
+
+    Args:
+        interactive: When True, pause and prompt the user for brands that have
+                     candidates but no confident automatic match. When False
+                     (default), below-threshold brands are silently skipped —
+                     safe for unattended/cron runs.
     """
+    from pipeline.processors.brand_resolver import _stdin_prompt
+
     logger.info("=== Brand Resolution Pipeline ===")
     cache_path = settings.data_dir / "brand_resolutions.json"
-    resolutions = resolve_all_brands(TOP_BRANDS, cache_path)
+    prompt_fn = _stdin_prompt if interactive else None
+    resolutions = resolve_all_brands(TOP_BRANDS, cache_path, prompt_fn=prompt_fn)
 
     brands = [
         {"name": name, "amazon_slug": name.lower().replace(" ", "-"), "aliases": []}
@@ -332,6 +341,11 @@ def main():
         action="store_true",
         help="Re-load FEC cycles even if they are already marked as loaded in the graph",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Pause and prompt for manual brand matching when no confident match is found",
+    )
     args = parser.parse_args()
 
     ensure_data_dirs()
@@ -345,7 +359,7 @@ def main():
             if run_all or "schema" in steps:
                 run_schema(session)
             if run_all or "brands" in steps:
-                run_brands(session)
+                run_brands(session, interactive=args.interactive)
             if run_all or "fec" in steps:
                 run_fec(session, force=args.force)
             if run_all or "scorecards" in steps:

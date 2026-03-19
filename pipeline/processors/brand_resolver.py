@@ -165,7 +165,7 @@ def resolve_all_brands(
     brand_names: list[str],
     cache_path: Path,
     max_oc_calls: int = 20,
-    prompt_fn: Callable[[str, list[dict]], dict | None] | None = _stdin_prompt,
+    prompt_fn: Callable[[str, list[dict]], dict | None] | None = None,
 ) -> dict[str, dict]:
     """Resolve a list of brand names, writing cache after each one.
 

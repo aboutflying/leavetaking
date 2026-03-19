@@ -351,19 +351,16 @@ class TestStdinPrompt:
             result = _stdin_prompt("Bose", _PROMPT_CANDIDATES)
         assert result is None
 
-    def test_resolve_all_brands_default_prompt_fn_is_stdin_prompt(self):
-        """resolve_all_brands default prompt_fn is _stdin_prompt, not None.
+    def test_resolve_all_brands_default_prompt_fn_is_none(self):
+        """resolve_all_brands default prompt_fn is None (headless by default).
 
-        Bug caught: resolve_all_brands defaults to prompt_fn=None, so the
-        pipeline never prompts even when brands fall below threshold.
-
-        Uses inspect.signature to verify the wiring at definition time —
-        patching the module-level name wouldn't work because default arguments
-        are evaluated when the function is defined, not when it's called.
+        Interactive prompting is opt-in via the --interactive CLI flag, which
+        passes _stdin_prompt explicitly. Headless is the safe default for
+        unattended/cron runs.
         """
         import inspect
         sig = inspect.signature(resolve_all_brands)
         default = sig.parameters["prompt_fn"].default
-        assert default is _stdin_prompt, (
-            f"resolve_all_brands prompt_fn default should be _stdin_prompt, got {default!r}"
+        assert default is None, (
+            f"resolve_all_brands prompt_fn default should be None, got {default!r}"
         )
