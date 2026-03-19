@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path("schema/constraints.cypher")
 SEED_PATH = Path("schema/seed_issues.cypher")
+FORTUNE100_SEED_PATH = Path("schema/seed_fortune100.cypher")
 
 # Top Amazon brands for MVP. In production these would be scraped/crawled.
 TOP_BRANDS = [
@@ -114,6 +115,8 @@ def run_schema(session) -> None:
     apply_schema(session, SCHEMA_PATH)
     logger.info("=== Loading seed data ===")
     load_seed_data(session, SEED_PATH)
+    logger.info("=== Loading Fortune 100 corporations ===")
+    load_seed_data(session, FORTUNE100_SEED_PATH)
 
 
 def run_brands(session) -> None:
