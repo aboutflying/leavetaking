@@ -28,21 +28,36 @@ def query_sparql(sparql: str) -> list[dict]:
 
 
 def find_corporation(brand_name: str) -> list[dict]:
-    """Find the corporate owner of a brand via Wikidata.
+    """Find the corporate owner of a brand via Wikidata EntitySearch.
 
-    Returns a list of matches with entity URI, label, and parent org if available.
+    Uses the mwapi EntitySearch SERVICE for fuzzy matching, filtered to
+    corporations (wdt:P31/wdt:P279* wd:Q783794). Returns a list of matches
+    with entity QID, label, and optional parent org / ticker.
     """
+    if not brand_name.strip():
+        return []
+
     sparql = """
     SELECT ?item ?itemLabel ?parent ?parentLabel ?ticker WHERE {
-      ?item rdfs:label "%s"@en .
+      SERVICE wikibase:mwapi {
+        bd:serviceParam wikibase:api "EntitySearch" ;
+                        wikibase:search "%s" ;
+                        wikibase:language "en" .
+        ?item wikibase:apiOutput mwapi:title .
+      }
+      ?item wdt:P31/wdt:P279* wd:Q783794 .
       OPTIONAL { ?item wdt:P749 ?parent . }
-      OPTIONAL { ?item wdt:P414 ?exchange . ?item wdt:P249 ?ticker . }
+      OPTIONAL { ?item wdt:P249 ?ticker . }
       SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
     }
-    LIMIT 10
+    LIMIT 5
     """ % brand_name.replace('"', '\\"')
 
-    results = query_sparql(sparql)
+    try:
+        results = query_sparql(sparql)
+    except Exception:
+        logger.exception("Wikidata query failed for brand '%s'", brand_name)
+        return []
     return [_extract_binding(r) for r in results]
 
 
