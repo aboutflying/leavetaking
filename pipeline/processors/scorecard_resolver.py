@@ -171,6 +171,16 @@ def _filter_by_party(
     return filtered if filtered else fec_ids
 
 
+def _make_provisional_id(candidate_name: str, state: str) -> str:
+    """Generate a stable synthetic Candidate ID for an unresolved scorecard entry.
+
+    Format: ``PROV_{STATE}_{NAME_SLUG}`` — e.g. ``PROV_CA_ALEX_PADILLA``.
+    Deterministic so repeated pipeline runs MERGE rather than create duplicates.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", candidate_name.lower()).strip("_").upper()
+    return f"PROV_{state.upper()}_{slug}"
+
+
 def resolve_candidates(
     raw_ratings: Iterator[RawRating],
     index: dict[tuple[str, str], list[str]],
@@ -190,7 +200,9 @@ def resolve_candidates(
     Multiple matches on the lastname fallback are treated as genuinely ambiguous
     (different people) and skipped with a WARNING.
 
-    0 matches after both stages: log WARNING, skip.
+    0 matches after both stages: yields a provisional Candidate dict (``provisional=True``)
+    so the candidate can be created in Neo4j and upgraded when FEC data arrives later.
+    Ambiguous matches are still skipped with a WARNING.
     """
     id_to_party = id_to_party or {}
     lastname_index = _build_lastname_index(index)
@@ -207,10 +219,20 @@ def resolve_candidates(
             by_name = lastname_index.get((scorecard_lastname, state), {})
             if len(by_name) == 0:
                 logger.warning(
-                    "No candidate match for %r / %s — skipping",
+                    "No candidate match for %r / %s — creating provisional",
                     rating.candidate_name,
                     state,
                 )
+                yield {
+                    "org_name": rating.org_name,
+                    "year": rating.year,
+                    "fec_candidate_id": _make_provisional_id(rating.candidate_name, state),
+                    "score": rating.score,
+                    "candidate_name": rating.candidate_name,
+                    "state": state,
+                    "party": rating.party,
+                    "provisional": True,
+                }
                 continue
             elif len(by_name) > 1:
                 # Narrow by first-name prefix, then party if still ambiguous
@@ -228,10 +250,20 @@ def resolve_candidates(
                     }
                 if len(narrowed) == 0:
                     logger.warning(
-                        "No candidate match for %r / %s — skipping",
+                        "No candidate match for %r / %s — creating provisional",
                         rating.candidate_name,
                         state,
                     )
+                    yield {
+                        "org_name": rating.org_name,
+                        "year": rating.year,
+                        "fec_candidate_id": _make_provisional_id(rating.candidate_name, state),
+                        "score": rating.score,
+                        "candidate_name": rating.candidate_name,
+                        "state": state,
+                        "party": rating.party,
+                        "provisional": True,
+                    }
                     continue
                 elif len(narrowed) == 1:
                     matches = next(iter(narrowed.values()))

@@ -106,18 +106,123 @@ def load_subsidiary_edges(session: Session, edges: list[dict]) -> int:
 def load_candidates(session: Session, candidates: list[dict]) -> int:
     """Load Candidate nodes from FEC data.
 
+    If a candidate's name changes between cycles (e.g. a middle name added or
+    dropped), the previous name is appended to ``aliases`` before the golden
+    record is updated with the new canonical FEC name.
+
     Args:
         candidates: List of dicts with keys from FEC candidate master.
     """
     query = """
     UNWIND $batch AS c
     MERGE (cand:Candidate {fec_candidate_id: c.candidate_id})
+    WITH cand, c,
+         CASE WHEN cand.name IS NOT NULL AND cand.name <> c.candidate_name
+              THEN [x IN coalesce(cand.aliases, []) + [cand.name]
+                    WHERE NOT x IN coalesce(cand.aliases, [])]
+                   + coalesce(cand.aliases, [])
+              ELSE coalesce(cand.aliases, [])
+         END AS updated_aliases
     SET cand.name = c.candidate_name,
         cand.party = c.party,
         cand.office = c.office,
-        cand.state = c.office_state
+        cand.state = c.office_state,
+        cand.aliases = updated_aliases
     """
     return _batch_load(session, query, candidates)
+
+
+def load_provisional_candidates(session: Session, provisionals: list[dict]) -> int:
+    """Create Candidate nodes for scorecard entries that could not be resolved to FEC IDs.
+
+    Uses MERGE so repeated pipeline runs are idempotent.  Provisional nodes are
+    marked with ``provisional: true`` so the FEC reconciliation step can find and
+    upgrade them when real FEC data arrives in a future cycle.
+
+    Args:
+        provisionals: List of dicts with keys: fec_candidate_id (synthetic PROV_*),
+                      candidate_name, state, party (optional).
+    """
+    query = """
+    UNWIND $batch AS p
+    MERGE (cand:Candidate {fec_candidate_id: p.fec_candidate_id})
+    SET cand.name = p.candidate_name,
+        cand.state = p.state,
+        cand.party = p.party,
+        cand.provisional = true
+    """
+    return _batch_load(session, query, provisionals)
+
+
+def reconcile_provisional_candidates(
+    session: Session,
+    index: dict[tuple[str, str], list[str]],
+) -> int:
+    """Upgrade provisional Candidate nodes that now have a matching real FEC record.
+
+    Called after ``load_candidates()`` so newly loaded FEC candidates are available.
+    For each provisional, looks up the candidate's name in the FEC index.  On a
+    match, RATES edges are transferred to the real node, aliases are merged, and
+    the provisional node is deleted.
+
+    Args:
+        index: (normalized_name, state) -> [fec_candidate_id] from build_candidate_index,
+               built *after* the current FEC load so new candidates are included.
+
+    Returns:
+        Number of provisional nodes reconciled.
+    """
+    from pipeline.processors.scorecard_resolver import normalize_scorecard_name
+
+    provisionals = list(
+        session.run(
+            "MATCH (c:Candidate {provisional: true}) "
+            "RETURN c.fec_candidate_id AS prov_id, c.name AS name, c.state AS state"
+        )
+    )
+    if not provisionals:
+        return 0
+
+    reconciled = 0
+    for record in provisionals:
+        prov_id = record["prov_id"]
+        name = record["name"] or ""
+        state = record["state"] or ""
+        normalized = normalize_scorecard_name(name)
+        matches = index.get((normalized, state), [])
+        if not matches:
+            continue
+
+        for real_id in matches:
+            session.run(
+                """
+                MATCH (prov:Candidate {fec_candidate_id: $prov_id})
+                MATCH (real:Candidate {fec_candidate_id: $real_id})
+                // Transfer RATES edges
+                OPTIONAL MATCH (sc:Scorecard)-[r:RATES]->(prov)
+                FOREACH (_ IN CASE WHEN r IS NOT NULL THEN [1] ELSE [] END |
+                    MERGE (sc)-[nr:RATES]->(real)
+                    SET nr.score = r.score, nr.year = r.year
+                )
+                // Merge aliases: add provisional name and its aliases to real node
+                WITH prov, real
+                SET real.aliases = [x IN
+                    coalesce(real.aliases, [])
+                    + coalesce(prov.aliases, [])
+                    + [prov.name]
+                    WHERE x IS NOT NULL AND x <> real.name
+                ]
+                WITH prov
+                DETACH DELETE prov
+                """,
+                prov_id=prov_id,
+                real_id=real_id,
+            )
+            logger.info("Reconciled provisional %s → %s (%s)", prov_id, real_id, name)
+            reconciled += 1
+            break  # one provisional maps to one real candidate
+
+    return reconciled
 
 
 def load_committees(session: Session, committees: list[dict]) -> int:

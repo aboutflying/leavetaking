@@ -27,9 +27,11 @@ from pipeline.loaders.graph_loader import (
     load_corporations,
     load_ownership_edges,
     load_pac_edges,
+    load_provisional_candidates,
     load_scorecard_ratings,
     load_seed_data,
     load_subsidiary_edges,
+    reconcile_provisional_candidates,
 )
 from pipeline.processors.brand_resolver import resolve_all_brands
 from pipeline.processors.entity_resolution import (
@@ -197,6 +199,10 @@ def run_fec(session) -> None:
     committee-to-candidate contributions (pas2), and candidate-committee
     linkage (ccl). Individual contributions (indiv) are not processed —
     executive donation tracking is deferred to Tier 2.
+
+    After loading candidates, runs reconciliation to upgrade any provisional
+    Candidate nodes (created by the scorecard pipeline) that now have a
+    matching real FEC record.
     """
     logger.info("=== FEC Data Pipeline ===")
 
@@ -217,6 +223,12 @@ def run_fec(session) -> None:
         # Load candidates and committees into Neo4j
         load_candidates(session, candidates)
         load_committees(session, committees)
+
+        # Upgrade any provisional Candidate nodes that now match real FEC records.
+        index = build_candidate_index(session)
+        n_reconciled = reconcile_provisional_candidates(session, index)
+        if n_reconciled:
+            logger.info("Reconciled %d provisional candidates to FEC records", n_reconciled)
 
         # Build set of known candidate IDs for ccl26 validation
         known_cand_ids = {c["candidate_id"] for c in candidates}
@@ -263,13 +275,24 @@ def run_fec(session) -> None:
 
 
 def run_scorecards(session) -> None:
-    """Step 2: Load scorecard data, resolve to FEC candidate IDs, and load edges."""
+    """Step 2: Load scorecard data, resolve to FEC candidate IDs, and load edges.
+
+    Candidates that cannot be resolved to an FEC ID are created as provisional
+    Candidate nodes so their scorecard ratings are preserved.  They will be
+    upgraded to real FEC records the next time run_fec() runs.
+    """
     logger.info("=== Scorecard Pipeline ===")
     raw = load_all_scorecards(settings.scorecard_year)
     index = build_candidate_index(session)
     logger.info("Candidate index built: %d entries", len(index))
     ratings = list(resolve_candidates(raw, index))
     logger.info("Resolved %d scorecard ratings", len(ratings))
+
+    provisionals = [r for r in ratings if r.get("provisional")]
+    if provisionals:
+        logger.info("Creating %d provisional candidate nodes", len(provisionals))
+        load_provisional_candidates(session, provisionals)
+
     load_scorecard_ratings(session, ratings)
 
 

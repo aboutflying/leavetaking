@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from pipeline.fetchers.scorecards import RawRating
 from pipeline.processors.scorecard_resolver import (
+    _make_provisional_id,
     build_candidate_index,
     normalize_fec_name,
     normalize_scorecard_name,
@@ -142,6 +143,17 @@ def _make_rating(candidate_name: str, state: str, score: float = 75.0) -> RawRat
     )
 
 
+def test_make_provisional_id_format():
+    """Provisional ID is deterministic and prefixed with PROV_{STATE}_."""
+    pid = _make_provisional_id("Alex Padilla", "CA")
+    assert pid == "PROV_CA_ALEX_PADILLA"
+
+
+def test_make_provisional_id_stable():
+    """Same inputs always produce the same ID."""
+    assert _make_provisional_id("Ted Cruz", "TX") == _make_provisional_id("Ted Cruz", "TX")
+
+
 def test_resolve_candidates_match():
     """Single match yields resolved dict with fec_candidate_id."""
     index = {("nancy pelosi", "CA"): ["H8CA05036"]}
@@ -158,14 +170,19 @@ def test_resolve_candidates_match():
     }
 
 
-def test_resolve_candidates_no_match_warns_and_skips(caplog):
-    """Zero matches logs WARNING and skips the rating."""
+def test_resolve_candidates_no_match_creates_provisional(caplog):
+    """Zero matches logs WARNING and yields a provisional candidate dict."""
     index = {}
     rating = _make_rating("Unknown Person", "XX")
     with caplog.at_level(logging.WARNING, logger="pipeline.processors.scorecard_resolver"):
         results = list(resolve_candidates([rating], index))
 
-    assert results == []
+    assert len(results) == 1
+    r = results[0]
+    assert r["provisional"] is True
+    assert r["fec_candidate_id"].startswith("PROV_XX_")
+    assert r["candidate_name"] == "Unknown Person"
+    assert r["state"] == "XX"
     assert any("Unknown Person" in msg for msg in caplog.messages)
 
 
@@ -200,17 +217,19 @@ def test_resolve_candidates_state_uppercased_defensively():
 
 
 def test_resolve_candidates_multiple_ratings():
-    """All ratings processed: some matched, some skipped."""
+    """All ratings processed: matched get FEC IDs, unmatched become provisionals."""
     index = {
         ("nancy pelosi", "CA"): ["H8CA05036"],
         ("ted cruz", "TX"): ["S0TX00453"],
     }
     ratings = [
         _make_rating("Nancy Pelosi", "CA", 100.0),
-        _make_rating("Unknown Person", "XX", 50.0),  # no match → skip
+        _make_rating("Unknown Person", "XX", 50.0),  # no match → provisional
         _make_rating("Ted Cruz", "TX", 0.0),
     ]
     results = list(resolve_candidates(ratings, index))
-    assert len(results) == 2
+    assert len(results) == 3
     assert results[0]["fec_candidate_id"] == "H8CA05036"
-    assert results[1]["fec_candidate_id"] == "S0TX00453"
+    assert results[1]["provisional"] is True
+    assert results[1]["fec_candidate_id"].startswith("PROV_XX_")
+    assert results[2]["fec_candidate_id"] == "S0TX00453"
