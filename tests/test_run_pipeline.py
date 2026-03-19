@@ -403,3 +403,117 @@ class TestEnrichCorporationQids:
         # Apple Inc. should still be enriched despite Acme failing
         mock_load.assert_called_once()
         assert result == 1
+
+
+# ---------------------------------------------------------------------------
+# discover_subsidiaries_for_corpus tests
+# ---------------------------------------------------------------------------
+
+from pipeline.run_pipeline import discover_subsidiaries_for_corpus  # noqa: E402
+
+
+class TestDiscoverSubsidiariesForCorpus:
+    def test_skips_corporations_without_qid(self):
+        """get_subsidiaries must not be called for Corps with no QID.
+
+        Bug caught: calling get_subsidiaries(None) sends a malformed SPARQL
+        query and returns garbage or raises.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Unknown Corp", "qid": None}]
+
+        with patch(f"{_PATCH_BASE}.get_subsidiaries") as mock_subs:
+            discover_subsidiaries_for_corpus(session, delay=0)
+
+        mock_subs.assert_not_called()
+
+    def test_creates_corporation_node_and_edge_for_each_subsidiary(self):
+        """Each subsidiary returned by get_subsidiaries is loaded as a Corporation + SUBSIDIARY_OF edge.
+
+        Bug caught: function fetches subsidiaries but never writes them to Neo4j,
+        leaving the graph empty.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Alphabet Inc.", "qid": "Q95"}]
+
+        with (
+            patch(f"{_PATCH_BASE}.get_subsidiaries") as mock_subs,
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load_corps,
+            patch(f"{_PATCH_BASE}.load_subsidiary_edges") as mock_load_edges,
+        ):
+            mock_subs.return_value = [{"qid": "Q90003", "name": "Google LLC"}]
+            discover_subsidiaries_for_corpus(session, delay=0)
+
+        corp_names = [c["name"] for c in mock_load_corps.call_args[0][1]]
+        assert "Google LLC" in corp_names
+
+        edges = mock_load_edges.call_args[0][1]
+        assert {"child_name": "Google LLC", "parent_name": "Alphabet Inc."} in edges
+
+    def test_handles_get_subsidiaries_exception_and_continues(self):
+        """Exception from get_subsidiaries for one corp does not abort discovery for others.
+
+        Bug caught: unhandled exception stops the loop, leaving later corporations
+        unenriched when one Wikidata call fails.
+        """
+        session = _make_session()
+        session.run.return_value = [
+            {"name": "BadCorp", "qid": "Q1"},
+            {"name": "Alphabet Inc.", "qid": "Q95"},
+        ]
+
+        with (
+            patch(f"{_PATCH_BASE}.get_subsidiaries") as mock_subs,
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load_corps,
+            patch(f"{_PATCH_BASE}.load_subsidiary_edges"),
+        ):
+            mock_subs.side_effect = [
+                Exception("SPARQL timeout"),
+                [{"qid": "Q90003", "name": "Google LLC"}],
+            ]
+            discover_subsidiaries_for_corpus(session, delay=0)
+
+        mock_load_corps.assert_called_once()
+        corp_names = [c["name"] for c in mock_load_corps.call_args[0][1]]
+        assert "Google LLC" in corp_names
+
+    def test_skips_subsidiaries_with_empty_name(self):
+        """Subsidiaries with empty name are not loaded into Neo4j.
+
+        Bug caught: Wikidata sometimes returns entities with empty labels
+        (QID exists but no English label). Loading empty-name nodes pollutes
+        the graph with useless Corporation nodes.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Alphabet Inc.", "qid": "Q95"}]
+
+        with (
+            patch(f"{_PATCH_BASE}.get_subsidiaries") as mock_subs,
+            patch(f"{_PATCH_BASE}.load_corporations") as mock_load_corps,
+        ):
+            mock_subs.return_value = [{"qid": "Q999", "name": ""}]
+            discover_subsidiaries_for_corpus(session, delay=0)
+
+        mock_load_corps.assert_not_called()
+
+    def test_returns_count_of_subsidiaries_loaded(self):
+        """Return value is the total number of subsidiary Corporation nodes loaded.
+
+        Bug caught: function always returns None, making it impossible to log
+        or test how many subsidiaries were discovered.
+        """
+        session = _make_session()
+        session.run.return_value = [{"name": "Alphabet Inc.", "qid": "Q95"}]
+
+        with (
+            patch(f"{_PATCH_BASE}.get_subsidiaries") as mock_subs,
+            patch(f"{_PATCH_BASE}.load_corporations"),
+            patch(f"{_PATCH_BASE}.load_subsidiary_edges"),
+        ):
+            mock_subs.return_value = [
+                {"qid": "Q90003", "name": "Google LLC"},
+                {"qid": "Q312", "name": "YouTube"},
+            ]
+            result = discover_subsidiaries_for_corpus(session, delay=0)
+
+        assert result == 2

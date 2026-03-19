@@ -16,7 +16,7 @@ from pipeline.fetchers.fec import (
     parse_committee_master,
 )
 from pipeline.fetchers.scorecards import load_all_scorecards
-from pipeline.fetchers.wikidata import _search_entities, get_ownership_chain
+from pipeline.fetchers.wikidata import _search_entities, get_ownership_chain, get_subsidiaries
 from pipeline.loaders.graph_loader import (
     apply_schema,
     fetch_corporation_names,
@@ -217,6 +217,8 @@ def run_brands(
     if not skip_discovery:
         logger.info("=== QID Enrichment ===")
         enrich_corporation_qids(session)
+        logger.info("=== Subsidiary Discovery ===")
+        discover_subsidiaries_for_corpus(session)
 
 
 def enrich_corporation_qids(session, delay: float = 1.0) -> int:
@@ -251,6 +253,53 @@ def enrich_corporation_qids(session, delay: float = 1.0) -> int:
         time.sleep(delay)
     logger.info("Enriched %d corporation QIDs", enriched)
     return enriched
+
+
+def discover_subsidiaries_for_corpus(session, delay: float = 1.0) -> int:
+    """Discover subsidiaries for Corporation nodes that have a Wikidata QID.
+
+    Queries Neo4j for all Corporation nodes with a qid, calls get_subsidiaries()
+    for each, and loads the results as new Corporation nodes + SUBSIDIARY_OF edges.
+    Idempotent: Neo4j MERGE prevents duplicate nodes/edges on re-runs.
+    Rate-limited via delay between API calls.
+
+    Returns:
+        Total number of subsidiary Corporation nodes loaded.
+    """
+    result = session.run(
+        "MATCH (c:Corporation) WHERE c.qid IS NOT NULL RETURN c.name AS name, c.qid AS qid"
+    )
+    corps = [(r["name"], r["qid"]) for r in result if r["qid"]]
+    total = 0
+    for corp_name, qid in corps:
+        try:
+            subs = get_subsidiaries(qid)
+        except Exception:
+            logger.exception("get_subsidiaries failed for %s (%s)", corp_name, qid)
+            time.sleep(delay)
+            continue
+        new_corps = []
+        new_edges = []
+        for s in subs:
+            if not s.get("name"):
+                continue
+            new_corps.append(
+                {
+                    "name": s["name"],
+                    "ticker": None,
+                    "cik": None,
+                    "jurisdiction": None,
+                    "oc_id": None,
+                }
+            )
+            new_edges.append({"child_name": s["name"], "parent_name": corp_name})
+        if new_corps:
+            load_corporations(session, new_corps)
+            load_subsidiary_edges(session, new_edges)
+            total += len(new_corps)
+        time.sleep(delay)
+    logger.info("Discovered %d subsidiaries across %d corporations", total, len(corps))
+    return total
 
 
 def run_fec(session, force: bool = False) -> None:
