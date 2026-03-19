@@ -397,7 +397,7 @@ def is_fec_cycle_loaded(session: Session, cycle: int) -> bool:
     were fully processed and loaded for that cycle.
     """
     result = session.run(
-        "RETURN exists((:FECCycleLoad {cycle: $cycle})) AS loaded",
+        "MATCH (n:FECCycleLoad {cycle: $cycle}) RETURN count(n) > 0 AS loaded",
         cycle=cycle,
     )
     return bool(result.single()["loaded"])
