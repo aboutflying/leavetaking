@@ -1,0 +1,55 @@
+# Template: envsubst'd by bootstrap script before applying.
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+kind: TalosControlPlane
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+  namespace: default
+spec:
+  version: ${KUBERNETES_VERSION}
+  replicas: ${CONTROL_PLANE_COUNT}
+  infrastructureTemplate:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: AzureMachineTemplate
+    name: ${CLUSTER_NAME}-control-plane
+  controlPlaneConfig:
+    controlplane:
+      generateType: controlplane
+      talosVersion: ${TALOS_VERSION}
+      configPatches:
+        - op: add
+          path: /cluster/network/cni
+          value:
+            name: custom
+            urls:
+              - https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+        - op: add
+          path: /cluster/proxy
+          value:
+            disabled: true
+        - op: add
+          path: /machine/features/kubePrism
+          value:
+            enabled: true
+            port: 7445
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: AzureMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+  namespace: default
+spec:
+  template:
+    spec:
+      vmSize: ${CONTROL_PLANE_VM_SIZE}
+      osDisk:
+        osType: Linux
+        diskSizeGB: 50
+        managedDisk:
+          storageAccountType: Premium_LRS
+      image:
+        marketplace:
+          publisher: siderolabs
+          offer: talos
+          sku: ${TALOS_VERSION}
+          version: latest
+      sshPublicKey: ""

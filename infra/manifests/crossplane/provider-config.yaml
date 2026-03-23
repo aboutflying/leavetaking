@@ -1,0 +1,13 @@
+# ProviderConfig references the Secret created by the bootstrap script.
+# The Secret is created imperatively because it contains credentials.
+apiVersion: azure.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: azure-creds
+      key: credentials

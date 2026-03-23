@@ -1,0 +1,68 @@
+# Template: envsubst'd by bootstrap script before applying.
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: ${CLUSTER_NAME}-workers
+  namespace: default
+spec:
+  clusterName: ${CLUSTER_NAME}
+  replicas: ${WORKER_COUNT}
+  selector:
+    matchLabels: {}
+  template:
+    spec:
+      clusterName: ${CLUSTER_NAME}
+      version: ${KUBERNETES_VERSION}
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+          kind: TalosConfigTemplate
+          name: ${CLUSTER_NAME}-workers
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: AzureMachineTemplate
+        name: ${CLUSTER_NAME}-workers
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+kind: TalosConfigTemplate
+metadata:
+  name: ${CLUSTER_NAME}-workers
+  namespace: default
+spec:
+  template:
+    spec:
+      generateType: worker
+      talosVersion: ${TALOS_VERSION}
+      configPatches:
+        - op: add
+          path: /cluster/network/cni
+          value:
+            name: custom
+            urls:
+              - https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+        - op: add
+          path: /cluster/proxy
+          value:
+            disabled: true
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: AzureMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-workers
+  namespace: default
+spec:
+  template:
+    spec:
+      vmSize: ${WORKER_VM_SIZE}
+      osDisk:
+        osType: Linux
+        diskSizeGB: 100
+        managedDisk:
+          storageAccountType: Premium_LRS
+      image:
+        marketplace:
+          publisher: siderolabs
+          offer: talos
+          sku: ${TALOS_VERSION}
+          version: latest
+      sshPublicKey: ""
