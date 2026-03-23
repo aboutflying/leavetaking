@@ -1,0 +1,220 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: azure-network
+  labels:
+    provider: azure
+spec:
+  compositeTypeRef:
+    apiVersion: infrastructure.example.com/v1alpha1
+    kind: XAzureNetwork
+  patchSets:
+    - name: common
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.location
+  resources:
+    # --- Resource Group ---
+    - name: resource-group
+      base:
+        apiVersion: azure.upbound.io/v1beta1
+        kind: ResourceGroup
+        spec:
+          forProvider: {}
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.resourceGroupName
+          toFieldPath: metadata.annotations[crossplane.io/external-name]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.location
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.id
+          toFieldPath: status.resourceGroupName
+          transforms:
+            - type: string
+              string:
+                type: Regexp
+                regexp:
+                  match: ".*/resourceGroups/(.+)$"
+                  group: 1
+
+    # --- Virtual Network ---
+    - name: vnet
+      base:
+        apiVersion: network.azure.upbound.io/v1beta2
+        kind: VirtualNetwork
+        spec:
+          forProvider:
+            resourceGroupNameSelector:
+              matchControllerRef: true
+            addressSpace:
+              - "10.0.0.0/16"
+      patches:
+        - type: PatchSet
+          patchSetName: common
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.vnetCidr
+          toFieldPath: spec.forProvider.addressSpace[0]
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.id
+          toFieldPath: status.vnetId
+
+    # --- Control Plane Subnet ---
+    - name: subnet-controlplane
+      base:
+        apiVersion: network.azure.upbound.io/v1beta2
+        kind: Subnet
+        metadata:
+          labels:
+            role: controlplane
+        spec:
+          forProvider:
+            resourceGroupNameSelector:
+              matchControllerRef: true
+            virtualNetworkNameSelector:
+              matchControllerRef: true
+            addressPrefixes:
+              - "10.0.1.0/24"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.controlPlaneSubnetCidr
+          toFieldPath: spec.forProvider.addressPrefixes[0]
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.id
+          toFieldPath: status.controlPlaneSubnetId
+
+    # --- Worker Subnet ---
+    - name: subnet-workers
+      base:
+        apiVersion: network.azure.upbound.io/v1beta2
+        kind: Subnet
+        metadata:
+          labels:
+            role: workers
+        spec:
+          forProvider:
+            resourceGroupNameSelector:
+              matchControllerRef: true
+            virtualNetworkNameSelector:
+              matchControllerRef: true
+            addressPrefixes:
+              - "10.0.2.0/24"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.workerSubnetCidr
+          toFieldPath: spec.forProvider.addressPrefixes[0]
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.id
+          toFieldPath: status.workerSubnetId
+
+    # --- NSG: Control Plane ---
+    - name: nsg-controlplane
+      base:
+        apiVersion: network.azure.upbound.io/v1beta2
+        kind: SecurityGroup
+        metadata:
+          labels:
+            role: controlplane
+        spec:
+          forProvider:
+            resourceGroupNameSelector:
+              matchControllerRef: true
+            securityRule:
+              - name: allow-apiserver
+                priority: 100
+                direction: Inbound
+                access: Allow
+                protocol: Tcp
+                sourcePortRange: "*"
+                destinationPortRange: "6443"
+                sourceAddressPrefix: "*"
+                destinationAddressPrefix: "*"
+              - name: allow-talos-api
+                priority: 110
+                direction: Inbound
+                access: Allow
+                protocol: Tcp
+                sourcePortRange: "*"
+                destinationPortRange: "50000"
+                sourceAddressPrefix: "*"
+                destinationAddressPrefix: "*"
+              - name: allow-etcd
+                priority: 120
+                direction: Inbound
+                access: Allow
+                protocol: Tcp
+                sourcePortRange: "*"
+                destinationPortRange: "2379-2380"
+                sourceAddressPrefix: "10.0.0.0/16"
+                destinationAddressPrefix: "*"
+      patches:
+        - type: PatchSet
+          patchSetName: common
+
+    # --- NSG: Workers ---
+    - name: nsg-workers
+      base:
+        apiVersion: network.azure.upbound.io/v1beta2
+        kind: SecurityGroup
+        metadata:
+          labels:
+            role: workers
+        spec:
+          forProvider:
+            resourceGroupNameSelector:
+              matchControllerRef: true
+            securityRule:
+              - name: allow-nodeport
+                priority: 100
+                direction: Inbound
+                access: Allow
+                protocol: Tcp
+                sourcePortRange: "*"
+                destinationPortRange: "30000-32767"
+                sourceAddressPrefix: "*"
+                destinationAddressPrefix: "*"
+              - name: allow-kubelet
+                priority: 110
+                direction: Inbound
+                access: Allow
+                protocol: Tcp
+                sourcePortRange: "*"
+                destinationPortRange: "10250"
+                sourceAddressPrefix: "10.0.0.0/16"
+                destinationAddressPrefix: "*"
+      patches:
+        - type: PatchSet
+          patchSetName: common
+
+    # --- Subnet <-> NSG Associations ---
+    - name: nsg-assoc-controlplane
+      base:
+        apiVersion: network.azure.upbound.io/v1beta1
+        kind: SubnetNetworkSecurityGroupAssociation
+        spec:
+          forProvider:
+            subnetIdSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: controlplane
+            networkSecurityGroupIdSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: controlplane
+
+    - name: nsg-assoc-workers
+      base:
+        apiVersion: network.azure.upbound.io/v1beta1
+        kind: SubnetNetworkSecurityGroupAssociation
+        spec:
+          forProvider:
+            subnetIdSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: workers
+            networkSecurityGroupIdSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: workers

@@ -1,0 +1,55 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xazurenetworks.infrastructure.example.com
+spec:
+  group: infrastructure.example.com
+  names:
+    kind: XAzureNetwork
+    plural: xazurenetworks
+  claimNames:
+    kind: AzureNetwork
+    plural: azurenetworks
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+                    region:
+                      type: string
+                      default: eastus2
+                    resourceGroupName:
+                      type: string
+                    vnetCidr:
+                      type: string
+                      default: "10.0.0.0/16"
+                    controlPlaneSubnetCidr:
+                      type: string
+                      default: "10.0.1.0/24"
+                    workerSubnetCidr:
+                      type: string
+                      default: "10.0.2.0/24"
+                  required:
+                    - resourceGroupName
+              required:
+                - parameters
+            status:
+              type: object
+              properties:
+                vnetId:
+                  type: string
+                controlPlaneSubnetId:
+                  type: string
+                workerSubnetId:
+                  type: string
+                resourceGroupName:
+                  type: string

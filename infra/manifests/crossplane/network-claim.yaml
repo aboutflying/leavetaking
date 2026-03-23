@@ -1,0 +1,13 @@
+# This file is a template. The bootstrap script envsubst's it before applying.
+apiVersion: infrastructure.example.com/v1alpha1
+kind: AzureNetwork
+metadata:
+  name: ${CLUSTER_NAME}-network
+  namespace: default
+spec:
+  parameters:
+    region: ${AZURE_LOCATION}
+    resourceGroupName: ${RESOURCE_GROUP}
+    vnetCidr: "10.0.0.0/16"
+    controlPlaneSubnetCidr: "10.0.1.0/24"
+    workerSubnetCidr: "10.0.2.0/24"
